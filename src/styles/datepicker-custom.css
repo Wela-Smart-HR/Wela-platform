@@ -1,0 +1,62 @@
+/* ปรับสี Header ปฏิทิน */
+.react-datepicker__header {
+  background-color: #F8FAFC !important; /* bg-slate-50 */
+  border-bottom: 1px solid #E2E8F0 !important; /* border-slate-200 */
+  padding-top: 12px !important;
+}
+
+/* ปรับสีวันปัจจุบัน */
+.react-datepicker__current-month, .react-datepicker-time__header, .react-datepicker-year-header {
+  color: #1E293B !important; /* text-slate-800 */
+  font-weight: 700 !important;
+  font-size: 0.9rem !important;
+}
+
+/* ปรับสีชื่อวัน (จ-อา) */
+.react-datepicker__day-name {
+  color: #94A3B8 !important; /* text-slate-400 */
+  font-weight: 700 !important;
+  font-size: 0.75rem !important;
+}
+
+/* ปรับสีวันที่ถูกเลือก (ช่วง) */
+.react-datepicker__day--selected, .react-datepicker__day--in-selecting-range, .react-datepicker__day--in-range {
+  background-color: #2563EB !important; /* bg-blue-600 */
+  color: white !important;
+  font-weight: 700 !important;
+  border-radius: 8px !important;
+}
+
+/* วันที่โฮเวอร์ */
+.react-datepicker__day:hover {
+    background-color: #E2E8F0 !important; /* bg-slate-200 */
+    border-radius: 8px !important;
+}
+
+/* เอาขอบเขตวันออก */
+.react-datepicker__day--keyboard-selected {
+    background-color: transparent !important;
+}
+
+/* ตัวกล่องปฏิทิน */
+.react-datepicker {
+    font-family: inherit !important;
+    border: 1px solid #E2E8F0 !important;
+    border-radius: 16px !important;
+    overflow: hidden !important;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+/* ลูกศรเปลี่ยนเดือน */
+.react-datepicker__navigation-icon::before {
+    border-color: #64748B !important; /* text-slate-500 */
+    border-width: 2px 2px 0 0 !important;
+}
+
+.react-datepicker__input-container input {
+  display: flex;
+  align-items: center;
+  height: 3rem; /* h-12 = 48px */
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
