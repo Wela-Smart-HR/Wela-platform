@@ -16,11 +16,7 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
-
-
-
-    
+    setLoading(true);  
 
     try {
       // 1. ล็อกอิน
