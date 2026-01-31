@@ -10,6 +10,7 @@ import {
 } from '@phosphor-icons/react';
 // ✅ Import Hook จาก Features Architecture
 import { useSettings } from '../../features/settings/useSettings';
+import LocationPickerMap from '../../components/admin/LocationPickerMap'; // ✅ Import Map Picker
 
 export default function Settings() {
   const navigate = useNavigate();
@@ -23,6 +24,7 @@ export default function Settings() {
 
   const [activeTab, setActiveTab] = useState(location.state?.defaultTab || 'general');
   const [isSaving, setIsSaving] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState(false); // ✅ State for Map Modal
 
   // State หลัก
   const [storeConfig, setStoreConfig] = useState({
@@ -64,7 +66,6 @@ export default function Settings() {
   };
 
   const handleSaveShift = () => {
-    // ✅ เปลี่ยน alert เป็น dialog
     if (!shiftForm.name) return dialog.showAlert("กรุณาระบุชื่อกะงานให้ครบถ้วน", "ข้อมูลไม่ครบ", "error");
 
     let updatedShifts;
@@ -82,7 +83,6 @@ export default function Settings() {
     setIsShiftModalOpen(false);
   };
 
-  // ✅ เพิ่ม async และใช้ dialog.showConfirm
   const handleDeleteShift = async (id) => {
     const isConfirmed = await dialog.showConfirm("คุณต้องการลบกะงานนี้ใช่หรือไม่?", "ยืนยันการลบ");
 
@@ -106,7 +106,6 @@ export default function Settings() {
   };
 
   const handleSaveOT = () => {
-    // ✅ เปลี่ยน alert เป็น dialog
     if (!otForm.name || !otForm.rate) return dialog.showAlert("กรุณากรอกข้อมูลให้ครบถ้วน", "ข้อมูลไม่ครบ", "error");
 
     let updatedOTs;
@@ -124,7 +123,6 @@ export default function Settings() {
     setIsOTModalOpen(false);
   };
 
-  // ✅ เพิ่ม async และใช้ dialog.showConfirm
   const handleDeleteOT = async (id) => {
     const isConfirmed = await dialog.showConfirm("คุณต้องการลบประเภท OT นี้ใช่หรือไม่?", "ยืนยันการลบ");
 
@@ -139,9 +137,7 @@ export default function Settings() {
     if (!currentUser?.companyId) return;
     setIsSaving(true);
     try {
-      // ✅ ใช้ saveAll จาก hook แทน direct Firestore calls
       await saveAll(storeConfig);
-
       await dialog.showAlert("บันทึกข้อมูลเรียบร้อยแล้ว", "สำเร็จ!", "success");
     } catch (error) {
       console.error("Save Error:", error);
@@ -150,7 +146,8 @@ export default function Settings() {
     setIsSaving(false);
   };
 
-  // ... (Logic เดิม: GPS, Logout) ...
+  // ... (GPS Logic) ...
+
   const [isLocating, setIsLocating] = useState(false); // ✅ State สำหรับ Button Loading
 
   const getCurrentLocation = () => {
@@ -263,6 +260,12 @@ export default function Settings() {
                   ) : (
                     <>📍 ดึงพิกัดปัจจุบัน</>
                   )}
+                </button>
+                <button
+                  onClick={() => setShowMapPicker(true)}
+                  className="px-3 py-1.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600 hover:bg-slate-200 transition flex items-center gap-1.5"
+                >
+                  <MapPinArea size={14} weight="bold" /> เลือกบนแผนที่
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-3 mb-4">
@@ -403,6 +406,19 @@ export default function Settings() {
         </div>
       )}
 
+      {/* Map Picker Modal */}
+      <LocationPickerMap
+        isOpen={showMapPicker}
+        onClose={() => setShowMapPicker(false)}
+        initialLocation={storeConfig.location}
+        onConfirm={(loc) => {
+          setStoreConfig(prev => ({
+            ...prev,
+            location: { lat: loc.lat, lng: loc.lng }
+          }));
+          dialog.showAlert(`อัปเดตตำแหน่งเรียบร้อย: ${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)}`, "สำเร็จ", "success");
+        }}
+      />
     </div>
   );
 }
