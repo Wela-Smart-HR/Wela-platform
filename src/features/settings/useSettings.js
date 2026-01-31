@@ -142,6 +142,24 @@ export function useSettings(companyId) {
             setLoading(false);
         }
     };
+    /**
+     * Save all settings to 3 collections (for Settings.jsx handleSave)
+     * @param {Object} storeConfig - Full config from Settings page state
+     */
+    const saveAll = async (storeConfig) => {
+        try {
+            setLoading(true);
+            setError(null);
+            await settingsRepo.saveAllSettings(companyId, storeConfig);
+            await loadSettings();
+        } catch (err) {
+            console.error('Error saving all settings:', err);
+            setError(err.message);
+            throw err;
+        } finally {
+            setLoading(false);
+        }
+    };
 
     return {
         settings,
@@ -151,6 +169,7 @@ export function useSettings(companyId) {
         updateLocation,
         updateAttendanceConfig,
         updatePayrollConfig,
-        updateAllSettings
+        updateAllSettings,
+        saveAll
     };
 }

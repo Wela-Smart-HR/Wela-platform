@@ -1,4 +1,4 @@
-import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/shared/lib/firebase';
 
 /**
@@ -17,9 +17,15 @@ export const settingsRepo = {
 
             if (!snap.exists()) return null;
 
+            // Also fetch greeting and deduction subcollections
+            const greetingSnap = await getDoc(doc(db, 'companies', companyId, 'settings', 'greeting'));
+            const deductionSnap = await getDoc(doc(db, 'companies', companyId, 'settings', 'deduction'));
+
             return {
                 id: snap.id,
-                ...snap.data()
+                ...snap.data(),
+                greeting: greetingSnap.exists() ? greetingSnap.data() : {},
+                deduction: deductionSnap.exists() ? deductionSnap.data() : {}
             };
         } catch (error) {
             console.error('Error getting company settings:', error);
@@ -41,6 +47,48 @@ export const settingsRepo = {
             });
         } catch (error) {
             console.error('Error updating company settings:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Save all settings to 3 collections at once
+     * @param {string} companyId 
+     * @param {Object} storeConfig - Full config from Settings page
+     * @returns {Promise<void>}
+     */
+    async saveAllSettings(companyId, storeConfig) {
+        try {
+            // 1. Save main company data
+            await setDoc(doc(db, 'companies', companyId), {
+                name: storeConfig.name,
+                taxId: storeConfig.taxId,
+                settings: {
+                    location: storeConfig.location,
+                    radius: Number(storeConfig.radius),
+                    gpsEnabled: storeConfig.gpsEnabled
+                },
+                shifts: storeConfig.shifts,
+                otTypes: storeConfig.otTypes,
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+
+            // 2. Save greeting settings
+            await setDoc(doc(db, 'companies', companyId, 'settings', 'greeting'), {
+                onTimeMessage: storeConfig.onTimeMessage || '',
+                lateMessage: storeConfig.lateMessage || '',
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+
+            // 3. Save deduction settings
+            await setDoc(doc(db, 'companies', companyId, 'settings', 'deduction'), {
+                gracePeriod: Number(storeConfig.gracePeriod) || 0,
+                deductionPerMinute: Number(storeConfig.deductionPerMinute) || 0,
+                maxDeduction: Number(storeConfig.maxDeduction) || 0,
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+        } catch (error) {
+            console.error('Error saving all settings:', error);
             throw error;
         }
     },
