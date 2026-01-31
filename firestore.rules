@@ -1,0 +1,122 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===== Helper Functions =====
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function isOwner() {
+      return isAuthenticated() && getUserData().role == 'owner';
+    }
+    
+    function isSameCompany(companyId) {
+      return isAuthenticated() && getUserData().companyId == companyId;
+    }
+    
+    function isOwnerOfCompany(companyId) {
+      return isOwner() && getUserData().companyId == companyId;
+    }
+    
+    function isEmployee() {
+      return isAuthenticated() && getUserData().role == 'employee';
+    }
+    
+    // ===== Users Collection =====
+    match /users/{userId} {
+      // Anyone authenticated can read their own profile or same company users
+      allow read: if isAuthenticated() && 
+                     (request.auth.uid == userId || 
+                      isSameCompany(resource.data.companyId));
+      
+      // User creation (signup)
+      allow create: if isAuthenticated();
+      
+      // Update: self or company owner
+      allow update: if isAuthenticated() && 
+                       (request.auth.uid == userId || 
+                        isOwnerOfCompany(resource.data.companyId));
+      
+      // Delete: only company owner
+      allow delete: if isOwnerOfCompany(resource.data.companyId);
+    }
+    
+    // ===== Companies Collection =====
+    match /companies/{companyId} {
+      // Read: anyone in the company
+      allow read: if isSameCompany(companyId);
+      
+      // Write: only company owner
+      allow write: if isOwnerOfCompany(companyId);
+      
+      // Settings subcollection
+      match /settings/{settingId} {
+        allow read: if isSameCompany(companyId);
+        allow write: if isOwnerOfCompany(companyId);
+      }
+    }
+    
+    // ===== Attendance Collection =====
+    match /attendance/{docId} {
+      // Read: anyone in same company
+      allow read: if isSameCompany(resource.data.companyId);
+      
+      // Create: employee can create their own attendance
+      allow create: if isAuthenticated() && 
+                       request.auth.uid == request.resource.data.userId &&
+                       isSameCompany(request.resource.data.companyId);
+      
+      // Update/Delete: only company owner
+      allow update, delete: if isOwnerOfCompany(resource.data.companyId);
+    }
+    
+    // ===== Schedules Collection =====
+    match /schedules/{docId} {
+      // Read: anyone in same company
+      allow read: if isSameCompany(resource.data.companyId);
+      
+      // Write: only company owner
+      allow write: if isOwnerOfCompany(resource.data.companyId);
+    }
+    
+    // ===== Payslips Collection =====
+    match /payslips/{docId} {
+      // Read: employee can read their own, owner can read all in company
+      allow read: if isAuthenticated() && 
+                     (request.auth.uid == resource.data.userId || 
+                      isOwnerOfCompany(resource.data.companyId));
+      
+      // Write: only company owner
+      allow write: if isOwnerOfCompany(resource.data.companyId);
+    }
+    
+    // ===== Requests Collection =====
+    match /requests/{docId} {
+      // Read: anyone in same company
+      allow read: if isSameCompany(resource.data.companyId);
+      
+      // Create: employee can create their own request
+      allow create: if isAuthenticated() && 
+                       request.auth.uid == request.resource.data.userId &&
+                       isSameCompany(request.resource.data.companyId);
+      
+      // Update: owner can approve/reject
+      allow update: if isOwnerOfCompany(resource.data.companyId);
+      
+      // Delete: creator or owner
+      allow delete: if isAuthenticated() && 
+                       (request.auth.uid == resource.data.userId || 
+                        isOwnerOfCompany(resource.data.companyId));
+    }
+    
+    // ===== Block all other collections =====
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

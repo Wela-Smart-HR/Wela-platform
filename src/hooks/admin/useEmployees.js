@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { db } from '../../services/firebase';
-import { 
-  collection, query, where, onSnapshot, 
-  doc, updateDoc, serverTimestamp 
+import {
+  collection, query, where, onSnapshot,
+  doc, updateDoc, deleteDoc, serverTimestamp
 } from 'firebase/firestore';
 import { useAuth } from '../../contexts/AuthContext'; // เราจะเรียก useAuth ในนี้เพื่อใช้ createEmployee
 
@@ -15,19 +15,19 @@ export function useEmployees(companyId) {
   // 1. Logic การดึงข้อมูล (Subscribe Real-time)
   useEffect(() => {
     if (!companyId) {
-        setEmployees([]);
-        setIsLoading(false);
-        return;
+      setEmployees([]);
+      setIsLoading(false);
+      return;
     }
 
     setIsLoading(true);
     try {
       const q = query(
-        collection(db, "users"), 
-        where("companyId", "==", companyId), 
+        collection(db, "users"),
+        where("companyId", "==", companyId),
         where("role", "==", "employee")
       );
-      
+
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const empList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setEmployees(empList);
@@ -37,7 +37,7 @@ export function useEmployees(companyId) {
         setError(err.message);
         setIsLoading(false);
       });
-      
+
       return unsubscribe;
     } catch (err) {
       console.error("Firestore Query Error:", err);
@@ -52,9 +52,9 @@ export function useEmployees(companyId) {
     try {
       const userRef = doc(db, "users", id);
       // เพิ่ม timestamp เวลาแก้ไข
-      await updateDoc(userRef, { 
-          ...data, 
-          updatedAt: serverTimestamp() 
+      await updateDoc(userRef, {
+        ...data,
+        updatedAt: serverTimestamp()
       });
       return true;
     } catch (err) {
@@ -75,11 +75,24 @@ export function useEmployees(companyId) {
     }
   };
 
-  return { 
-    employees, 
-    isLoading, 
-    error, 
-    updateEmployee, 
-    addEmployee 
+  // 4. Logic การลบพนักงาน (Delete)
+  const deleteEmployee = async (id) => {
+    if (!id) throw new Error("Missing Employee ID");
+    try {
+      await deleteDoc(doc(db, "users", id));
+      return true;
+    } catch (err) {
+      console.error("Delete Error:", err);
+      throw err;
+    }
+  };
+
+  return {
+    employees,
+    isLoading,
+    error,
+    updateEmployee,
+    addEmployee,
+    deleteEmployee
   };
 }

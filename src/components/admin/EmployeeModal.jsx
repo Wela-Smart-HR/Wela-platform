@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Camera, X, User, IdentificationCard, Calendar, Phone, 
-  Envelope, Bank, CurrencyBtc, CaretDown, Clock, 
-  ShieldCheck, Circle, Trash, WarningCircle 
+import {
+  Camera, X, User, IdentificationCard, Calendar, Phone,
+  Envelope, Bank, CurrencyBtc, CaretDown, Clock,
+  ShieldCheck, Circle, Trash, WarningCircle
 } from '@phosphor-icons/react';
 
-export default function EmployeeModal({ isOpen, onClose, employee, onSave, isLoading }) {
+export default function EmployeeModal({ isOpen, onClose, employee, onSave, onDelete, isLoading }) {
   if (!isOpen) return null;
 
   // Initial State (ค่าเริ่มต้นว่างๆ)
@@ -66,6 +66,13 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, isLoa
     onSave(formData);
   };
 
+  const handleDelete = () => {
+    if (onDelete && employee) {
+      onDelete(employee.id);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   const days = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
   const inputStyle = "w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-700 font-medium outline-none focus:bg-white focus:border-blue-500 transition-all placeholder:text-slate-300 appearance-none";
   const labelStyle = "text-[10px] font-bold text-slate-400 mb-1.5 block uppercase tracking-wide";
@@ -75,25 +82,25 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, isLoa
     <div className="fixed inset-0 z-[100]">
       <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" onClick={onClose}></div>
       <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl shadow-2xl animate-slide-up flex flex-col h-[95vh]">
-        
+
         {/* Header */}
         <div className="px-6 pt-5 pb-4 border-b border-slate-100 flex justify-between items-center bg-white rounded-t-3xl z-10">
           <h2 className="text-lg font-bold text-slate-800">{employee ? 'แก้ไขข้อมูลพนักงาน' : 'เพิ่มพนักงานใหม่'}</h2>
           <div className="flex gap-2">
             {employee && (
-              <button onClick={() => setShowDeleteConfirm(true)} className="w-8 h-8 bg-rose-50 rounded-full flex items-center justify-center text-rose-500 hover:bg-rose-100 transition"><Trash weight="bold"/></button>
+              <button onClick={() => setShowDeleteConfirm(true)} className="w-8 h-8 bg-rose-50 rounded-full flex items-center justify-center text-rose-500 hover:bg-rose-100 transition"><Trash weight="bold" /></button>
             )}
-            <button onClick={onClose}><X weight="bold" className="text-slate-500 w-8 h-8"/></button>
+            <button onClick={onClose}><X weight="bold" className="text-slate-500 w-8 h-8" /></button>
           </div>
         </div>
 
         {/* Scrollable Form */}
         <div className="flex-1 overflow-y-auto p-6 pb-32 space-y-8 bg-white">
-          
+
           {/* Avatar */}
           <div className="flex flex-col items-center -mt-2">
             <div className="w-28 h-28 rounded-full bg-slate-50 border-4 border-white shadow-xl overflow-hidden flex items-center justify-center">
-               <User size={48} className="text-slate-300"/>
+              <User size={48} className="text-slate-300" />
             </div>
             <p className="text-xs text-slate-400 mt-2 font-medium">รูปโปรไฟล์ (เร็วๆ นี้)</p>
           </div>
@@ -106,26 +113,26 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, isLoa
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className={labelStyle}>Email (User)</label>
-                <input 
-                  name="email" 
-                  type="email" 
-                  value={formData.email} 
-                  onChange={handleChange} 
-                  className={`${inputStyle} bg-white`} 
-                  placeholder="email@worker.com" 
+                <input
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  className={`${inputStyle} bg-white`}
+                  placeholder="email@worker.com"
                   autoComplete="off" // ป้องกันจำ
                 />
               </div>
               <div>
                 <label className={labelStyle}>Password</label>
-                <input 
-                  name="password" 
-                  type="password" 
-                  value={formData.password} 
-                  onChange={handleChange} 
-                  className={`${inputStyle} bg-white`} 
-                  placeholder="******" 
-                  disabled={!!employee} 
+                <input
+                  name="password"
+                  type="password"
+                  value={formData.password}
+                  onChange={handleChange}
+                  className={`${inputStyle} bg-white`}
+                  placeholder="******"
+                  disabled={!!employee}
                   autoComplete="new-password" // บอก Browser ว่าเป็นรหัสใหม่ ห้ามเติมเอง
                 />
               </div>
@@ -161,61 +168,61 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, isLoa
           <div>
             <h3 className={`${sectionTitleStyle} border-emerald-500`}>การจ้างงาน & ภาษี</h3>
             <div className="grid grid-cols-2 gap-4">
-               <div>
-                  <label className={labelStyle}>ตำแหน่ง</label>
-                  <input name="position" type="text" value={formData.position} onChange={handleChange} className={inputStyle} />
-               </div>
-               <div>
-                  <label className={labelStyle}>ประเภทการจ้าง</label>
-                  <div className="relative">
-                    <select name="type" value={formData.type} onChange={handleChange} className={inputStyle}>
-                      <option>รายเดือน</option>
-                      <option>รายวัน</option>
-                    </select>
-                    <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold"/>
-                  </div>
-               </div>
-               <div className="col-span-2">
-                  <label className={labelStyle}>เงินเดือน / ค่าจ้าง (บาท)</label>
-                  <input name="salary" type="number" value={formData.salary} onChange={handleChange} className={`${inputStyle} bg-emerald-50 border-emerald-200 text-emerald-700 font-bold`} />
-               </div>
+              <div>
+                <label className={labelStyle}>ตำแหน่ง</label>
+                <input name="position" type="text" value={formData.position} onChange={handleChange} className={inputStyle} />
+              </div>
+              <div>
+                <label className={labelStyle}>ประเภทการจ้าง</label>
+                <div className="relative">
+                  <select name="type" value={formData.type} onChange={handleChange} className={inputStyle}>
+                    <option>รายเดือน</option>
+                    <option>รายวัน</option>
+                  </select>
+                  <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold" />
+                </div>
+              </div>
+              <div className="col-span-2">
+                <label className={labelStyle}>เงินเดือน / ค่าจ้าง (บาท)</label>
+                <input name="salary" type="number" value={formData.salary} onChange={handleChange} className={`${inputStyle} bg-emerald-50 border-emerald-200 text-emerald-700 font-bold`} />
+              </div>
 
-               {/* ภาษี */}
-               <div className="col-span-2">
-                  <label className={labelStyle}>รูปแบบการหักภาษี</label>
-                  <div className="relative">
-                    <select name="taxMode" value={formData.taxMode} onChange={handleChange} className={`${inputStyle} pl-10`}>
-                      <option value="none">ไม่หัก (ค่าเริ่มต้น)</option>
-                      <option value="sso">ประกันสังคม (5%)</option>
-                      <option value="wht">หัก ณ ที่จ่าย (3%)</option>
-                    </select>
-                    <ShieldCheck className="absolute left-3 top-3.5 text-slate-400" size={18}/>
-                    <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold"/>
-                  </div>
-               </div>
+              {/* ภาษี */}
+              <div className="col-span-2">
+                <label className={labelStyle}>รูปแบบการหักภาษี</label>
+                <div className="relative">
+                  <select name="taxMode" value={formData.taxMode} onChange={handleChange} className={`${inputStyle} pl-10`}>
+                    <option value="none">ไม่หัก (ค่าเริ่มต้น)</option>
+                    <option value="sso">ประกันสังคม (5%)</option>
+                    <option value="wht">หัก ณ ที่จ่าย (3%)</option>
+                  </select>
+                  <ShieldCheck className="absolute left-3 top-3.5 text-slate-400" size={18} />
+                  <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold" />
+                </div>
+              </div>
 
-               {/* กะงาน */}
-               <div className="col-span-2">
-                  <label className={labelStyle}>กะทำงานเริ่มต้น</label>
-                  <div className="relative">
-                    <select name="shift" value={formData.shift} onChange={handleChange} className={`${inputStyle} pl-10`}>
-                      <option value="normal">กะปกติ (09:00 - 18:00)</option>
-                      <option value="afternoon">กะบ่าย (14:00 - 23:00)</option>
-                    </select>
-                    <Clock className="absolute left-3 top-3.5 text-slate-400" size={18}/>
-                    <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold"/>
-                  </div>
-               </div>
+              {/* กะงาน */}
+              <div className="col-span-2">
+                <label className={labelStyle}>กะทำงานเริ่มต้น</label>
+                <div className="relative">
+                  <select name="shift" value={formData.shift} onChange={handleChange} className={`${inputStyle} pl-10`}>
+                    <option value="normal">กะปกติ (09:00 - 18:00)</option>
+                    <option value="afternoon">กะบ่าย (14:00 - 23:00)</option>
+                  </select>
+                  <Clock className="absolute left-3 top-3.5 text-slate-400" size={18} />
+                  <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold" />
+                </div>
+              </div>
 
-               {/* วันที่ */}
-               <div>
-                  <label className={labelStyle}>วันที่เริ่มงาน</label>
-                  <input name="startDate" type="date" value={formData.startDate} onChange={handleChange} className={inputStyle} />
-               </div>
-               <div>
-                  <label className={labelStyle}>สิ้นสุดทดลองงาน (ถ้ามี)</label>
-                  <input name="probationDate" type="date" value={formData.probationDate} onChange={handleChange} className={inputStyle} />
-               </div>
+              {/* วันที่ */}
+              <div>
+                <label className={labelStyle}>วันที่เริ่มงาน</label>
+                <input name="startDate" type="date" value={formData.startDate} onChange={handleChange} className={inputStyle} />
+              </div>
+              <div>
+                <label className={labelStyle}>สิ้นสุดทดลองงาน (ถ้ามี)</label>
+                <input name="probationDate" type="date" value={formData.probationDate} onChange={handleChange} className={inputStyle} />
+              </div>
             </div>
           </div>
 
@@ -227,20 +234,20 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, isLoa
             <div className={`p-4 rounded-2xl border transition-colors ${formData.status === 'active' ? 'bg-emerald-50 border-emerald-100' : 'bg-rose-50 border-rose-100'}`}>
               <div className="grid grid-cols-2 gap-4">
                 <div className="col-span-2">
-                   <label className={labelStyle}>สถานะ</label>
-                   <div className="relative">
-                      <select name="status" value={formData.status} onChange={handleChange} className={`${inputStyle} bg-white pl-10`}>
-                        <option value="active">ทำงานอยู่ (Active)</option>
-                        <option value="resigned">ลาออก (Resigned)</option>
-                      </select>
-                      <Circle weight="fill" className={`absolute left-3 top-3.5 ${formData.status === 'active' ? 'text-emerald-500' : 'text-rose-500'}`} size={12} />
-                      <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold"/>
-                   </div>
+                  <label className={labelStyle}>สถานะ</label>
+                  <div className="relative">
+                    <select name="status" value={formData.status} onChange={handleChange} className={`${inputStyle} bg-white pl-10`}>
+                      <option value="active">ทำงานอยู่ (Active)</option>
+                      <option value="resigned">ลาออก (Resigned)</option>
+                    </select>
+                    <Circle weight="fill" className={`absolute left-3 top-3.5 ${formData.status === 'active' ? 'text-emerald-500' : 'text-rose-500'}`} size={12} />
+                    <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold" />
+                  </div>
                 </div>
                 {formData.status === 'resigned' && (
                   <div className="col-span-2">
-                      <label className={labelStyle}>วันที่ลาออก / เลิกจ้าง</label>
-                      <input name="resignDate" type="date" value={formData.resignDate} onChange={handleChange} className={`${inputStyle} bg-white`} />
+                    <label className={labelStyle}>วันที่ลาออก / เลิกจ้าง</label>
+                    <input name="resignDate" type="date" value={formData.resignDate} onChange={handleChange} className={`${inputStyle} bg-white`} />
                   </div>
                 )}
               </div>
@@ -261,7 +268,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, isLoa
                     <option>กรุงไทย (KTB)</option>
                     <option value="cash">จ่ายเงินสด</option>
                   </select>
-                  <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold"/>
+                  <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold" />
                 </div>
               </div>
               <div className="col-span-2">
@@ -273,8 +280,8 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, isLoa
 
           {/* Day Offs */}
           <div className="pb-4">
-             <label className={labelStyle}>วันหยุดประจำสัปดาห์ (Day Off)</label>
-             <div className="flex justify-between gap-2 mt-2">
+            <label className={labelStyle}>วันหยุดประจำสัปดาห์ (Day Off)</label>
+            <div className="flex justify-between gap-2 mt-2">
               {days.map((d, index) => (
                 <button key={index} onClick={() => toggleDay(index)} className={`flex-1 h-10 rounded-lg text-xs font-bold border transition-all ${formData.dayOffs.includes(index) ? 'bg-rose-500 text-white border-rose-500' : 'bg-white text-slate-400'}`}>{d}</button>
               ))}
@@ -290,6 +297,42 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, isLoa
             {isLoading ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
           </button>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center">
+                  <WarningCircle weight="fill" size={24} className="text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800">ยืนยันการลบพนักงาน</h3>
+                  <p className="text-xs text-slate-500">การกระทำนี้ไม่สามารถย้อนกลับได้</p>
+                </div>
+              </div>
+              <p className="text-sm text-slate-600 mb-6">
+                คุณต้องการลบ <span className="font-bold">{employee?.name}</span> ออกจากระบบใช่หรือไม่?
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-slate-100 text-slate-600 hover:bg-slate-200 transition"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  onClick={handleDelete}
+                  disabled={isLoading}
+                  className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-rose-600 text-white hover:bg-rose-700 transition flex items-center justify-center gap-2"
+                >
+                  <Trash weight="bold" />
+                  {isLoading ? 'กำลังลบ...' : 'ยืนยันลบ'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

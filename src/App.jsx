@@ -1,33 +1,20 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { AppProvider } from './contexts/AppContext'; 
+import { AppProvider } from './contexts/AppContext';
 import useSwipeBack from './hooks/useSwipeBack';
 
 // --- LAYOUTS ---
 import AdminLayout from './layouts/AdminLayout';
 import EmployeeLayout from './layouts/EmployeeLayout';
 
+// --- ROUTES ---
+import { adminRoutes } from './app/routes/admin.routes';
+import { employeeRoutes } from './app/routes/employee.routes';
+
 // --- PAGES (COMMON) ---
 import Login from './pages/Login';
 import SignUp from './pages/SignUp';
-
-// --- PAGES (ADMIN) ---
-import Dashboard from './pages/admin/Dashboard';
-import Schedule from './pages/admin/Schedule';
-import Reports from './pages/admin/Reports';
-import Payroll from './pages/admin/Payroll';
-import Settings from './pages/admin/Settings';
-import People from './pages/admin/People';
-import Requests from './pages/admin/Requests'; // ✅ อย่าลืมหน้านี้
-
-// --- PAGES (EMPLOYEE) ---
-import Connect from './pages/employee/Connect';
-import TimeAttendance from './pages/employee/TimeAttendance';
-import MyRequests from './pages/employee/MyRequests';
-import Payslip from './pages/employee/Payslip';
-import Profile from './pages/employee/Profile';
-import MyWork from './pages/employee/MyWork';
 
 const SwipeHandler = () => { useSwipeBack(); return null; };
 
@@ -62,13 +49,7 @@ function App() {
                 <AdminLayout />
               </ProtectedRoute>
             }>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/schedule" element={<Schedule />} />
-              <Route path="/reports" element={<Reports />} />
-              <Route path="/payroll" element={<Payroll />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/people" element={<People />} />
-              <Route path="/requests" element={<Requests />} />
+              {adminRoutes}
             </Route>
 
             {/* 🟢 EMPLOYEE ROUTES */}
@@ -77,12 +58,7 @@ function App() {
                 <EmployeeLayout />
               </ProtectedRoute>
             }>
-              <Route index element={<Connect />} />
-              <Route path="time" element={<TimeAttendance />} />
-              <Route path="requests" element={<MyRequests />} />
-              <Route path="payslip" element={<Payslip />} />
-              <Route path="profile" element={<Profile />} />
-              <Route path="my-work" element={<MyWork />} />
+              {employeeRoutes}
             </Route>
 
             {/* FALLBACK */}
