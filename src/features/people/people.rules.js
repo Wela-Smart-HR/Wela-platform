@@ -1,15 +1,11 @@
 /**
- * People Business Rules
- * Pure functions for employee validation
- */
-
-/**
  * Validate employee data
  * @param {Object} employeeData 
+ * @param {boolean} isUpdate - true if updating existing employee
  * @returns {Object} { valid: boolean, error: string }
  */
-export function validateEmployeeData(employeeData) {
-    const { name, email, position, salary, salaryType } = employeeData;
+export function validateEmployeeData(employeeData, isUpdate = false) {
+    const { name, email, position, salary, salaryType, type } = employeeData;
 
     if (!name || name.trim().length < 2) {
         return { valid: false, error: 'Name must be at least 2 characters' };
@@ -19,15 +15,21 @@ export function validateEmployeeData(employeeData) {
         return { valid: false, error: 'Invalid email address' };
     }
 
-    if (!position || position.trim().length === 0) {
+    // Position เป็น optional สำหรับ update ถ้าไม่ได้เปลี่ยน
+    if (!isUpdate && (!position || position.trim().length === 0)) {
         return { valid: false, error: 'Position is required' };
     }
 
-    if (salary === undefined || salary === null || salary < 0) {
+    // Allow salary to be 0 or positive (not negative)
+    const salaryNum = Number(salary);
+    if (isNaN(salaryNum) || salaryNum < 0) {
         return { valid: false, error: 'Salary must be a positive number' };
     }
 
-    if (!salaryType || !['monthly', 'daily'].includes(salaryType)) {
+    // รองรับทั้ง salaryType (English) และ type (Thai) จาก Modal
+    const effectiveType = salaryType || type || 'monthly';
+    const validTypes = ['monthly', 'daily', 'รายเดือน', 'รายวัน'];
+    if (!validTypes.includes(effectiveType)) {
         return { valid: false, error: 'Salary type must be "monthly" or "daily"' };
     }
 

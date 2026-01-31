@@ -63,8 +63,9 @@ export function usePeopleAdmin(companyId, currentUser) {
         try {
             setLoading(true);
 
-            // Validate updates
-            const validation = validateEmployeeData({ ...employees.find(e => e.id === employeeId), ...updates });
+            // Merge existing employee data with updates, pass isUpdate=true
+            const existingEmployee = employees.find(e => e.id === employeeId);
+            const validation = validateEmployeeData({ ...existingEmployee, ...updates }, true);
             if (!validation.valid) {
                 throw new Error(validation.error);
             }
