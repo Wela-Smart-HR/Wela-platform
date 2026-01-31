@@ -229,57 +229,6 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
     // ============================
 
     /**
-     * เริ่มติดตาม GPS
-     * @param {Object} config - config บริษัท
-     */
-    const startGpsTracking = useCallback((config) => {
-        setLocationStatus('loading');
-        setGpsError('');
-
-        const { watchId, stop } = gpsService.startTracking({
-            highAccuracy: true,
-
-            // เมื่อได้ตำแหน่ง
-            onSuccess: (pos) => {
-                setLocation(pos);
-
-                // คำนวณระยะห่างจากบริษัท
-                if (config?.location) {
-                    const dist = gpsService.calculateDistance(
-                        pos.lat, pos.lng,
-                        config.location.lat, config.location.lng
-                    );
-                    setDistance(Math.round(dist));
-
-                    // เช็คว่าอยู่ในรัศมีไหม
-                    if (dist <= (config.radius || 350)) {
-                        setLocationStatus('ok');
-                    } else {
-                        setLocationStatus('out-of-range');
-                    }
-                } else {
-                    setLocationStatus('ok');
-                }
-            },
-
-            // เมื่อเกิด error
-            onError: (errInfo) => {
-                setLocationStatus('error');
-                setGpsError(errInfo.message);
-
-                // ลอง fallback เป็น low accuracy
-                if (errInfo.shouldFallback) {
-                    console.log('[GPS] ลอง low accuracy...');
-                    startGpsTrackingLowAccuracy(config);
-                }
-            }
-        });
-
-        // เก็บ reference
-        gpsRef.current = { watchId, stop };
-    }, []);
-
-    /**
      * ลอง GPS แบบ low accuracy (fallback)
      */
     const startGpsTrackingLowAccuracy = useCallback((config) => {
@@ -288,7 +237,7 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
 
             onSuccess: (pos) => {
                 setLocation(pos);
-                setLocationStatus('ok');
+                setLocationStatus('success');
 
                 if (config?.location) {
                     const dist = gpsService.calculateDistance(
@@ -298,7 +247,7 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                     setDistance(Math.round(dist));
 
                     if (dist <= (config.radius || 350)) {
-                        setLocationStatus('ok');
+                        setLocationStatus('success');
                     } else {
                         setLocationStatus('out-of-range');
                     }
@@ -313,6 +262,86 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
 
         gpsRef.current = { watchId, stop };
     }, []);
+
+    /**
+     * เริ่มติดตาม GPS
+     * @param {Object} config - config บริษัท
+     */
+    const startGpsTracking = useCallback((config) => {
+        // Cleaning up previous watcher if exists before starting new one (Safety Check)
+        if (gpsRef.current) {
+            gpsRef.current.stop();
+        }
+
+        setLocationStatus('loading');
+        setGpsError('');
+
+        // ✨ Quick Fix: ขอพิกัดทันที 1 ครั้ง (เหมือนไฟล์ Backup)
+        // เพื่อให้ได้ค่าเร็วที่สุดก่อนที่ Watcher จะทำงาน
+        gpsService.getCurrentPosition(false) // false = Low Accuracy for speed
+            .then((pos) => {
+                // Return formatted address like legacy code
+                const address = `Lat: ${pos.lat.toFixed(5)}, Lng: ${pos.lng.toFixed(5)} (±${Math.round(pos.accuracy)}m)`;
+                setLocation({ ...pos, address });
+
+                // คำนวณระยะทันที
+                if (config?.location) {
+                    setDistance(Math.round(dist));
+
+                    if (dist <= (config.radius || 350)) {
+                        setLocationStatus('success');
+                    } else {
+                        setLocationStatus('out-of-range');
+                    }
+                } else {
+                    setLocationStatus('success');
+                }
+            })
+            .catch((err) => {
+                // ...
+            });
+
+        const { watchId, stop } = gpsService.startTracking({
+            highAccuracy: true,
+
+            onSuccess: (pos) => {
+                // Return formatted address like legacy code
+                const address = `Lat: ${pos.lat.toFixed(5)}, Lng: ${pos.lng.toFixed(5)} (±${Math.round(pos.accuracy)}m)`;
+                setLocation({ ...pos, address });
+
+                // เช็คระยะทันที ไม่ set success มั่วซั่ว
+                if (config?.location) {
+                    const dist = gpsService.calculateDistance(
+                        pos.lat, pos.lng,
+                        config.location.lat, config.location.lng
+                    );
+                    setDistance(Math.round(dist));
+
+                    if (dist <= (config.radius || 350)) {
+                        setLocationStatus('success');
+                    } else {
+                        setLocationStatus('out-of-range');
+                    }
+                } else {
+                    setLocationStatus('success'); // ไม่มี config location ถือว่าผ่าน
+                }
+            },
+
+            onError: (errInfo) => {
+                // ถ้า High Accuracy พัง -> ลอง Low Accuracy แค่ครั้งเดียวพอ
+                if (errInfo.shouldFallback) {
+                    console.log('[GPS] Switching to Low Accuracy mode...');
+                    startGpsTrackingLowAccuracy(config);
+                } else {
+                    setLocationStatus('error');
+                    setGpsError(errInfo.message);
+                }
+            }
+        });
+
+        // เก็บ reference
+        gpsRef.current = { watchId, stop };
+    }, [startGpsTrackingLowAccuracy]);
 
     /**
      * ลอง GPS ใหม่ (เมื่อ user กดปุ่ม retry)

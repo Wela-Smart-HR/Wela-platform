@@ -100,8 +100,8 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
                 .map(d => ({ id: d.id, ...d.data() }))
                 .filter(u => u.role === 'employee');
 
-            const allSchedules = schedulesSnap.docs.map(d => d.data()).filter(s => isInMonth(s.date));
-            const allAttendances = attendanceSnap.docs.map(d => d.data()).filter(a => isInMonth(a.date));
+            const allSchedules = schedulesSnap.docs.map(d => d.data());
+            const allAttendances = attendanceSnap.docs.map(d => d.data());
 
             const calculatedList = employees.map(user => {
                 const salary = Number(user.salary) || 0;

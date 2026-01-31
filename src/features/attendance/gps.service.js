@@ -18,14 +18,14 @@
 const GPS_OPTIONS = {
     HIGH_ACCURACY: {
         enableHighAccuracy: true,
-        timeout: 15000,          // รอ 15 วินาที
-        maximumAge: 0,           // ไม่ใช้ cache
-        distanceFilter: 5        // อัปเดตเมื่อเลื่อนมากกว่า 5 เมตร
+        timeout: 20000,          // เพิ่มเป็น 20 วินาที
+        maximumAge: 10000,       // ยอมรับค่าเก่าได้ 10 วินาที (ลด Loop Timeout)
+        distanceFilter: 5
     },
     LOW_ACCURACY: {
         enableHighAccuracy: false,
-        timeout: 30000,          // รอ 30 วินาที (เผื่อ Wi-Fi ช้า)
-        maximumAge: 0,
+        timeout: 30000,
+        maximumAge: 30000,       // ยอมรับค่าเก่าได้ 30 วินาที
         distanceFilter: 5
     }
 };

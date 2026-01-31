@@ -64,7 +64,7 @@ export default function Payroll() {
         customIncomes: [], customDeductions: []
     });
 
-    const fmt = (n) => n?.toLocaleString('en-US', { minimumFractionDigits: 2 });
+    const fmt = (n) => (n ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2 });
 
     const changeMonth = (offset) => {
         const newDate = new Date(selectedMonth);
@@ -313,17 +313,17 @@ export default function Payroll() {
                             </div>
                         ) : (
                             <>
-                                <div className={`text-white rounded-3xl shadow-xl p-6 relative overflow-hidden transition-colors ${isMonthPaid ? 'bg-slate-700' : 'bg-slate-900'}`}>
-                                    <div className="relative z-10 flex justify-between items-end">
+                                <div className={`text-white rounded-3xl shadow-xl p-6 relative transition-colors ${isMonthPaid ? 'bg-slate-700' : 'bg-slate-900'}`}>
+                                    <div className="relative z-10 flex flex-col gap-4">
                                         <div>
                                             <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">ยอดจ่ายสุทธิ (Net Total)</p>
-                                            <h2 className="text-5xl font-bold tracking-tighter mb-2">฿ {fmt(summary.totalPay)}</h2>
-                                            <div className="flex items-center gap-2">
+                                            <h2 className="text-4xl sm:text-5xl font-bold tracking-tighter mb-2">฿ {fmt(summary.totalPay)}</h2>
+                                            <div className="flex items-center gap-2 flex-wrap">
                                                 <p className="text-xs text-slate-400">• {summary.totalStaff} พนักงาน</p>
                                                 {isMonthPaid ? <span className="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 border border-emerald-500/30"><LockKey weight="fill" /> จ่ายแล้ว (Closed)</span> : hasSavedData ? <span className="bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded text-[10px] font-bold border border-yellow-500/30">บันทึกแล้ว (รอปิดงวด)</span> : null}
                                             </div>
                                         </div>
-                                        <div className="flex gap-2 w-full sm:w-auto">
+                                        <div className="flex gap-2 flex-wrap">
                                             {!isMonthPaid && (
                                                 <button onClick={startCalculation} className="bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 transition active:scale-95"><ArrowsClockwise weight="bold" /> คำนวณใหม่</button>
                                             )}
@@ -332,7 +332,7 @@ export default function Payroll() {
                                             )}
                                         </div>
                                     </div>
-                                    <Wallet size={120} weight="fill" className="absolute right-0 top-0 p-6 opacity-10" />
+                                    <Wallet size={120} weight="fill" className="absolute right-4 top-1/2 -translate-y-1/2 opacity-10 pointer-events-none" />
                                 </div>
 
                                 <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">

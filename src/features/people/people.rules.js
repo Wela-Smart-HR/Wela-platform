@@ -15,10 +15,10 @@ export function validateEmployeeData(employeeData, isUpdate = false) {
         return { valid: false, error: 'Invalid email address' };
     }
 
-    // Position เป็น optional สำหรับ update ถ้าไม่ได้เปลี่ยน
-    if (!isUpdate && (!position || position.trim().length === 0)) {
-        return { valid: false, error: 'Position is required' };
-    }
+    // Position is optional in legacy logic
+    // if (!isUpdate && (!position || position.trim().length === 0)) {
+    //     return { valid: false, error: 'Position is required' };
+    // }
 
     // Allow salary to be 0 or positive (not negative)
     const salaryNum = Number(salary);

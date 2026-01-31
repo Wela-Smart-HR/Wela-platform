@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../shared/lib/firebase';
 import AttendanceMiniMap from '../../components/employee/AttendanceMiniMap';
+import LocationHelpModal from '../../components/employee/LocationHelpModal';
 import {
     MapPin, Fingerprint, CheckCircle, X, CalendarBlank, Timer,
     WarningCircle, SignOut, ClockCounterClockwise,
@@ -83,7 +84,7 @@ export default function TimeAttendance() {
     // 📊 STATE - จาก Hook (ไม่ต้อง useState)
     // ===================================================
     const currentLocation = hookLocation;
-    const locationStatus = hookLocationStatus === 'out-of-range' ? 'out' : (hookLocationStatus || 'loading');
+    const locationStatus = hookLocationStatus || 'loading';
     const distance = hookDistance;
     const gpsErrorMsg = hookGpsError || '';
     const companyConfig = hookCompanyConfig || { location: null, radius: 350, greeting: { onTime: 'สวัสดีครับ', late: 'สายแล้วนะ' } };
@@ -137,7 +138,7 @@ export default function TimeAttendance() {
             }
             else if (locationStatus === 'error' || locationStatus === 'loading') {
                 // ลองเรียก GPS อีกรอบเผื่อมันหลับ
-                startGPS(true);
+                retryGps();
                 dialog.showAlert(gpsErrorMsg || "กำลังค้นหาพิกัด...", "GPS", "warning");
             }
             return;
@@ -176,16 +177,21 @@ export default function TimeAttendance() {
             }
 
             if (result.success) {
-                // แสดง Greeting Popup
-                setGreetingMessage({
-                    title: result.message,
-                    text: '',
-                    isLate: result.isLate || false,
-                    type
-                });
-                setShowGreetingPopup(true);
-                clearTimeout(popupTimeoutRef.current);
-                popupTimeoutRef.current = setTimeout(() => setShowGreetingPopup(false), 5000);
+                // ✅ ถ้า Offline ให้แจ้งเตือนแบบเดิม
+                if (result.offline) {
+                    dialog.showAlert("ไม่มีสัญญาณอินเทอร์เน็ต\nบันทึกข้อมูลในเครื่องแล้ว ระบบจะอัปโหลดเมื่อมีสัญญาณ", "Offline Mode", "warning");
+                } else {
+                    // แสดง Greeting Popup
+                    setGreetingMessage({
+                        title: result.message,
+                        text: '',
+                        isLate: result.isLate || false,
+                        type
+                    });
+                    setShowGreetingPopup(true);
+                    clearTimeout(popupTimeoutRef.current);
+                    popupTimeoutRef.current = setTimeout(() => setShowGreetingPopup(false), 5000);
+                }
             } else {
                 // แสดง error
                 dialog.showAlert(result.message, "Error", "error");
@@ -285,7 +291,7 @@ export default function TimeAttendance() {
                             <div
                                 onClick={() => {
                                     // กดที่สถานะเพื่อบังคับโหลด GPS ใหม่
-                                    startGPS(true);
+                                    retryGps();
                                     setShowMap(true);
                                 }}
                                 className={`backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm border flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 ${locationStatus === 'success' ? 'bg-emerald-50/80 border-emerald-100 text-emerald-600' : (locationStatus === 'out-of-range' ? 'bg-orange-50 border-orange-200 text-orange-600' : locationStatus === 'error' ? 'bg-red-50 border-red-200 text-red-600' : 'bg-slate-100 border-slate-200 text-slate-500')}`}
