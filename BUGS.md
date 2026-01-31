@@ -1,31 +1,22 @@
+
 # 🐛 Bug Reports - Smart-HR Refactoring
 
-> รายงานบัคที่พบระหว่างการ refactor
+รายงานบัคที่พบระหว่างการ refactor
 
 ---
 
-## 🔴 Critical Bugs
+## 🔴 *Critical Bugs *
 
-### 1. Approve Request Error (Requests Feature)
+~~### 1. Approve Request Error (Requests Feature)~~
 **พบเมื่อ**: 2026-01-31 04:34  
 **ตำแหน่ง**: `useAdminRequests.js:38:45`  
 **อาการ**: Admin กดอนุมัติคำขอลา (Approve Request) แล้วเกิด error  
-**Error Message**: 
-```
-TypeError: Cannot read properties of undefined (reading ...)
-at approveRequest (useAdminRequests.js:38:45)
-at async handleAction (Requests.jsx:213:7)
-```
 
-**สาเหตุเบื้องต้น**:
-- อาจเป็นข้อมูลใน Firestore ไม่ครบ (missing fields)
-- หรือ logic ใน `useAdminRequests.js` อ่านข้อมูลผิด
-
-**สถานะ**: ⏸️ ยังไม่ได้แก้ (รอทำใน Phase 4)
+**สถานะ**: ✅ ***แก้ไขแล้ว***
 
 ---
 
-### 2. Profile getIdToken Error
+~~### 2. Profile getIdToken Error~~
 **พบเมื่อ**: 2026-01-31 04:34  
 **ตำแหน่ง**: `Profile.jsx:92:35`  
 **อาการ**: หน้า Profile มี error  
@@ -39,7 +30,7 @@ at handleUpdateProfile (Profile.jsx:92:35)
 - `userInternal` object ไม่มี method `getIdToken()`
 - อาจใช้ Firebase API ผิด version
 
-**สถานะ**: ⏸️ ยังไม่ได้แก้
+**สถานะ**: ✅ ***แก้ไขแล้ว***
 
 ---
 
@@ -103,17 +94,16 @@ Please include <meta name="mobile-web-app-capable" content="yes">
 
 ---
 
-### 5. Firebase Auth Errors (Testing)
+~~### 5. Firebase Auth Errors (Testing)~~
 **พบเมื่อ**: 2026-01-31 04:41  
 **ตำแหน่ง**: Login flow  
 **Message**:
 ```
 FirebaseError: Firebase: Error (auth/invalid-credential)
 ```
-
 **สาเหตุ**: ใช้ credentials ทดสอบที่ไม่ถูกต้อง
 
-**สถานะ**: ⚠️ เป็นเรื่องของการทดสอบ ไม่ใช่บัค
+**สถานะ**: ✅ แก้ไขแล้ว
 
 ---
 
@@ -125,12 +115,7 @@ FirebaseError: Firebase: Error (auth/invalid-credential)
 - **Reports Feature**: ยังใช้โค้ดเดิม
 - **UI Components**: ยังไม่ได้แยก
 
----
-
 ## ✅ ที่แก้ไปแล้ว
-
-ไม่มี (ยังไม่มีบัคที่แก้)
-
 ---
 
 **Created**: 2026-01-31  
