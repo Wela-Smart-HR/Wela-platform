@@ -184,7 +184,8 @@ export default function Settings() {
         if (err.code === 2) msg = "ไม่สามารถระบุตำแหน่งได้ (Position Unavailable)";
         if (err.code === 3) msg = "หมดเวลาการเชื่อมต่อ (Timeout)";
         await dialog.showAlert("ไม่สามารถดึงพิกัดได้: " + msg, "GPS Error", "error");
-      }
+      },
+      { timeout: 10000, enableHighAccuracy: false }
     );
   };
 
