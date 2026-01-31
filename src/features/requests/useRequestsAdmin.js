@@ -7,7 +7,7 @@ import { requestsRepo } from './requests.repo';
  * @param {string} filterStatus - 'pending', 'approved', 'rejected', or 'all'
  * @returns {Object}
  */
-export function useRequests(companyId, filterStatus = 'pending') {
+export function useRequestsAdmin(companyId, filterStatus = 'pending') {
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -32,9 +32,12 @@ export function useRequests(companyId, filterStatus = 'pending') {
         }
     };
 
-    const approveRequest = async (requestId, adminNote = '') => {
+    const approveRequest = async (requestOrId, adminNote = '') => {
         try {
             setLoading(true);
+            // รองรับทั้ง object และ string ID
+            const requestId = typeof requestOrId === 'string' ? requestOrId : requestOrId?.id;
+            if (!requestId) throw new Error('Invalid request ID');
             await requestsRepo.updateRequestStatus(requestId, 'approved', adminNote);
             await loadRequests();
             setError(null);
@@ -47,9 +50,12 @@ export function useRequests(companyId, filterStatus = 'pending') {
         }
     };
 
-    const rejectRequest = async (requestId, adminNote = '') => {
+    const rejectRequest = async (requestOrId, adminNote = '') => {
         try {
             setLoading(true);
+            // รองรับทั้ง object และ string ID
+            const requestId = typeof requestOrId === 'string' ? requestOrId : requestOrId?.id;
+            if (!requestId) throw new Error('Invalid request ID');
             await requestsRepo.updateRequestStatus(requestId, 'rejected', adminNote);
             await loadRequests();
             setError(null);
