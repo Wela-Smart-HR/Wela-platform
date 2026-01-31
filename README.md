@@ -2,7 +2,7 @@
 
 Employee Management & HR System built with React + Vite + Firebase
 
-## 🚀 Quick Start
+## 🚀 Quick Startหฟหกฟหกฟหก
 
 ### Prerequisites
 - Node.js 18+ 
