@@ -1,9 +1,9 @@
-import { db } from '../services/firebase';
+import { db } from '../shared/lib/firebase';
 import { collection, addDoc } from 'firebase/firestore';
 
 export const generateMockData = async (companyId) => {
     if (!companyId) return alert("ไม่พบ Company ID");
-    
+
     const confirm = window.confirm("⚠️ ยืนยันการสร้างข้อมูล Mockup ในปีปัจจุบัน?");
     if (!confirm) return;
 
@@ -35,7 +35,7 @@ export const generateMockData = async (companyId) => {
 
     // 2. สร้างข้อมูลย้อนหลัง 6 เดือน (ของปีปัจจุบัน)
     const currentYear = new Date().getFullYear(); // ✅ แก้ให้เป็นปีปัจจุบัน (2025)
-    
+
     // สร้าง Array เดือน 01 ถึง 06 (ม.ค. - มิ.ย.)
     const months = Array.from({ length: 6 }, (_, i) => {
         const m = String(i + 1).padStart(2, '0');
@@ -44,7 +44,7 @@ export const generateMockData = async (companyId) => {
 
     for (const month of months) {
         for (const emp of empIds) {
-            const ot = Math.floor(Math.random() * 3000); 
+            const ot = Math.floor(Math.random() * 3000);
             const sso = 750;
             const tax = Math.floor(emp.salary * 0.03);
             const net = emp.salary + ot - sso - tax;
@@ -54,7 +54,7 @@ export const generateMockData = async (companyId) => {
                 userId: emp.id,
                 name: emp.name,
                 role: emp.role,
-                monthId: month.id, 
+                monthId: month.id,
                 baseSalary: emp.salary,
                 otPay: ot,
                 incentive: 0,

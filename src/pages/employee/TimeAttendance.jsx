@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { db } from '../../services/firebase';
+import { db } from '../../shared/lib/firebase';
 import AttendanceMiniMap from '../../components/employee/AttendanceMiniMap';
 import {
     MapPin, Fingerprint, CheckCircle, X, CalendarBlank, Timer,
