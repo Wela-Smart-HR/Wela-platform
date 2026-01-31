@@ -1,79 +1,165 @@
 # Smart-HR Application
 
-Employee Management & HR System built with React + Vite + Firebase
+Employee Management & HR System built with **React + Vite + Firebase**
 
-## 🚀 Quick Start
+> เอกสารนี้เขียนสำหรับ **developer** ที่เพิ่งเข้ามาใหม่
+> เปิดไฟล์นี้แล้วทำตามได้ทันที ไม่ต้องไล่อ่านหลายที่
 
-### Prerequisites
-- Node.js 18+ 
-- npm or yarn
-- Firebase account
+---
 
-### Installation
+## 🧠 ภาพรวมสั้น ๆ (อ่านก่อน 30 วิ)
 
-1. **Clone the repository**
+* โปรเจกต์เป็น **Frontend (React + Vite)**
+* ใช้ **Firebase** (Auth / Firestore / Storage)
+* ไฟล์ build / PWA **ไม่ถูกเก็บใน git** (generate ใหม่ได้เสมอ)
+* ทำงานผ่าน **branch + Pull Request** เท่านั้น
+
+---
+
+## ✅ Prerequisites (เครื่องต้องพร้อมก่อน)
+
+ต้องมีสิ่งเหล่านี้ในเครื่อง:
+
+* Node.js **18+**
+* npm (หรือ yarn)
+* Firebase credentials (ขอจาก team lead)
+
+### ตรวจสอบ Node.js
+
+เปิด **Command Prompt / Terminal** แล้วพิมพ์:
+
 ```bash
-git clone <your-repo-url>
+node -v
+```
+
+ผลลัพธ์ที่ถูกต้องควรได้ประมาณ:
+
+```text
+v18.x.x
+```
+
+ถ้า:
+
+* ขึ้นว่า `node is not recognized` → ยังไม่ได้ติดตั้ง Node.js
+* เวอร์ชันต่ำกว่า 18 → ต้องอัปเดต
+
+ดาวน์โหลด Node.js (LTS):
+[https://nodejs.org](https://nodejs.org)
+
+ติดตั้งเสร็จแล้ว **ปิด–เปิด CMD ใหม่** แล้วเช็คซ้ำอีกครั้ง
+
+---
+
+## 🚀 Quick Start (รันให้ติดใน 5 นาที)
+
+### 1) Clone Repository
+
+```bash
+git clone <repo-url>
 cd smart-hr
 ```
 
-2. **Install dependencies**
+---
+
+### 2) Install Dependencies
+
 ```bash
 npm install
 ```
 
-3. **Setup Firebase Configuration**
+> ถ้า error แปลก ๆ
+> ให้ลองลบ `node_modules` แล้วรันใหม่
 
-Copy the example environment file:
+---
+
+### 3) Setup Environment Variables (จำเป็นมาก)
+
+สร้างไฟล์ `.env` จากตัวอย่าง:
+
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and fill in your Firebase credentials:
+แก้ไฟล์ `.env` แล้วใส่ Firebase credentials จริง:
+
 ```env
-VITE_FIREBASE_API_KEY=your-api-key-here
+VITE_FIREBASE_API_KEY=your-api-key
 VITE_FIREBASE_AUTH_DOMAIN=your-project-id.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=your-project-id
-VITE_FIREBASE_STORAGE_BUCKET=your-project-id.firebasestorage.app
+VITE_FIREBASE_STORAGE_BUCKET=your-project-id.appspot.com
 VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
 VITE_FIREBASE_APP_ID=your-app-id
 VITE_FIREBASE_MEASUREMENT_ID=your-measurement-id
 ```
 
-**⚠️ IMPORTANT**: 
-- Never commit `.env` file to git
-- Ask team lead for Firebase credentials if you don't have them
+⚠️ **IMPORTANT**
 
-4. **Run the development server**
+* ห้าม commit ไฟล์ `.env` เด็ดขาด
+* ถ้าไม่มีค่า → ขอจาก team lead เท่านั้น
+
+---
+
+### 4) Run Development Server
+
 ```bash
 npm run dev
 ```
 
-The app will be available at `http://localhost:5173`
+เปิดเว็บที่:
+
+```text
+http://localhost:5173
+```
+
+ถ้าเข้าได้ = พร้อมพัฒนา
 
 ---
 
-## 📦 Available Scripts
+## 📦 Common Commands
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run preview` - Preview production build locally
-- `npm run lint` - Run ESLint
+```bash
+npm run dev        # รัน dev server
+npm run build      # build สำหรับ production
+npm run preview    # preview build ที่ build แล้ว
+npm run lint       # ตรวจ eslint
+```
 
 ---
 
-## 🌍 Environments
+## 🧹 กรณีไฟล์หาย (ปกติ ไม่ใช่บั๊ก)
+
+ไฟล์เหล่านี้ **ไม่อยู่ใน git** และอาจหายได้เสมอ:
+
+* `dev-dist/`
+* `sw.js`
+* `workbox-*.js`
+* `registerSW.js`
+
+ถ้าหาย **ไม่ต้องกู้** ให้ generate ใหม่ด้วย:
+
+```bash
+npm run dev
+# หรือ
+npm run build
+```
+
+---
+
+## 🌍 Environment Usage
 
 ### Development
-Uses `.env` file (local development)
+
+ใช้ไฟล์ `.env`
 
 ### Staging
+
 ```bash
 cp .env.staging .env
 npm run build
 ```
 
 ### Production
+
 ```bash
 cp .env.production .env
 npm run build
@@ -81,130 +167,31 @@ npm run build
 
 ---
 
-## 🔐 Security
+## 🏗️ Project Structure (ย่อ)
 
-### Firebase Security Rules
-Make sure to apply these rules to your Firebase project:
-
-**Firestore Rules** (Database → Rules):
-```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Helper functions
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-    
-    function isOwner() {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'owner';
-    }
-    
-    function isSameCompany(companyId) {
-      return isAuthenticated() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId;
-    }
-    
-    function isOwnerOfCompany(companyId) {
-      return isOwner() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.companyId == companyId;
-    }
-    
-    // Users collection
-    match /users/{userId} {
-      allow read: if isAuthenticated() && 
-                     (request.auth.uid == userId || 
-                      isSameCompany(resource.data.companyId));
-      allow create: if isAuthenticated();
-      allow update: if isAuthenticated() && 
-                       (request.auth.uid == userId || 
-                        isOwnerOfCompany(resource.data.companyId));
-      allow delete: if isOwnerOfCompany(resource.data.companyId);
-    }
-    
-    // Companies collection
-    match /companies/{companyId} {
-      allow read: if isSameCompany(companyId);
-      allow write: if isOwnerOfCompany(companyId);
-    }
-    
-    // Attendance collection
-    match /attendance/{docId} {
-      allow read: if isSameCompany(resource.data.companyId);
-      allow create: if isAuthenticated() && 
-                       request.auth.uid == request.resource.data.userId;
-      allow update, delete: if isOwnerOfCompany(resource.data.companyId);
-    }
-    
-    // Schedules collection
-    match /schedules/{docId} {
-      allow read: if isSameCompany(resource.data.companyId);
-      allow write: if isOwnerOfCompany(resource.data.companyId);
-    }
-    
-    // Payslips collection
-    match /payslips/{docId} {
-      allow read: if isAuthenticated() && 
-                     (request.auth.uid == resource.data.userId || 
-                      isOwnerOfCompany(resource.data.companyId));
-      allow write: if isOwnerOfCompany(resource.data.companyId);
-    }
-    
-    // Requests collection
-    match /requests/{docId} {
-      allow read: if isSameCompany(resource.data.companyId);
-      allow create: if isAuthenticated() && 
-                       request.auth.uid == request.resource.data.userId;
-      allow update: if isOwnerOfCompany(resource.data.companyId);
-      allow delete: if isAuthenticated() && 
-                       (request.auth.uid == resource.data.userId || 
-                        isOwnerOfCompany(resource.data.companyId));
-    }
-  }
-}
-```
-
-**Storage Rules** (Storage → Rules):
-```javascript
-rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && 
-                      request.resource.size < 5 * 1024 * 1024; // 5MB limit
-    }
-  }
-}
-```
-
----
-
-## 🏗️ Project Structure
-
-```
+```text
 src/
-  app/              # Routes & Layouts
-  pages/            # UI Pages (admin & employee)
-  features/         # Feature modules (auth, attendance, payroll, etc.)
-  shared/           # Shared utilities & components
+  app/        # Routes / Layouts
+  pages/      # UI Pages (admin / employee)
+  features/   # Feature-based logic (hooks, services)
+  shared/     # Shared components & utilities
 ```
 
-See `implementation_plan.md` for detailed architecture.
+แผน refactor ดูที่:
+
+* `MIGRATION_PLAN.md`
 
 ---
 
-## 👥 Team Workflow
+## 👥 Team Workflow (กฎที่ต้องทำตาม)
 
-1. **Never commit `.env` files** - Only `.env.example` should be in git
-2. **Get Firebase credentials from team lead**
-3. **Follow the refactoring plan** in `implementation_plan.md`
-4. **Run tests before committing** - `npm run lint && npm run build`
+1. ❌ ห้าม commit `.env`
+2. ❌ ห้าม commit ไฟล์ build / dev-dist
+3. ✅ ทำงานผ่าน branch เท่านั้น
+4. ✅ เปิด Pull Request ก่อน merge เข้า `main`
 
 ---
 
 ## 📝 License
 
-Private - Internal Use Only
-
+Private – Internal Use Only
