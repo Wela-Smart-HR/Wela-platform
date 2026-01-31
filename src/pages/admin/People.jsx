@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-// ❌ ลบ import firebase ที่ไม่ได้ใช้แล้วออกให้หมด
-import { 
-  MagnifyingGlass, Funnel, Plus, PencilSimple, 
+import {
+  MagnifyingGlass, Funnel, Plus, PencilSimple,
   Money, WarningCircle, CheckCircle
 } from '@phosphor-icons/react';
 
@@ -17,9 +16,9 @@ import WarningModal from '../../components/admin/WarningModal';
 export default function People() {
   const { currentUser } = useAuth();
   const dialog = useDialog(); // ✅ 2. เรียกใช้ Dialog
-  
+
   // ✅ เรียกใช้ Logic จาก Hook บรรทัดเดียวจบ!
-  const { employees, isLoading, addEmployee, updateEmployee } = useEmployees(currentUser?.companyId);
+  const { employees, isLoading, addEmployee, updateEmployee, deleteEmployee } = useEmployees(currentUser?.companyId);
 
   // --- UI STATE ---
   // ❌ ลบ showSuccess ออก เพราะเราจะใช้ Global Dialog แทนครับ
@@ -37,22 +36,22 @@ export default function People() {
         // 🔥 LOGIC 1: แก้ไข (เรียกใช้ updateEmployee จาก Hook)
         const { password, ...updateData } = formData; // แยก password ออกไม่ให้อัปเดต
         await updateEmployee(selectedEmployee.id, updateData);
-        
+
       } else {
         // 🔥 LOGIC 2: สร้างใหม่ (เรียกใช้ addEmployee จาก Hook)
         await addEmployee(formData, formData.password);
       }
 
       // Success Flow
-      setIsModalOpen(false);      
-      setSelectedEmployee(null);  
-      
+      setIsModalOpen(false);
+      setSelectedEmployee(null);
+
       // ✅ 3. ใช้ Dialog แทน Custom Popup เดิม
       await dialog.showAlert("ข้อมูลพนักงานถูกอัปเดตลงในระบบแล้ว", "บันทึกเรียบร้อย!", "success");
 
     } catch (error) {
       // ✅ 4. เปลี่ยน alert เป็น dialog
-      dialog.showAlert("เกิดข้อผิดพลาด: " + error.message, "Error", "error");
+      dialog.showAlert("เกิดข้อ ผิดพลาด: " + error.message, "Error", "error");
     }
     setIsSaving(false);
   };
@@ -61,21 +60,33 @@ export default function People() {
   const handleNew = () => { setSelectedEmployee(null); setIsModalOpen(true); };
   const handleOpenWarning = (e, emp) => { e.stopPropagation(); setWarningTarget(emp); setIsWarningModalOpen(true); };
 
+  const handleDeleteEmployee = async (id) => {
+    setIsSaving(true);
+    try {
+      await deleteEmployee(id);
+      setIsModalOpen(false);
+      await dialog.showAlert("ลบพนักงานออกจากระบบเรียบร้อยแล้ว", "สำเร็จ", "success");
+    } catch (error) {
+      dialog.showAlert("เกิดข้อผิดพลาด: " + error.message, "Error", "error");
+    }
+    setIsSaving(false);
+  };
+
   return (
     <div id="page-admin-people" className="flex flex-col h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
-      
+
       {/* HEADER */}
       <header className="px-6 pt-6 pb-2 z-20 bg-[#FAFAFA]/90 backdrop-blur-sm sticky top-0">
         <div className="flex justify-between items-center mb-4">
           <h1 className="text-2xl font-bold text-slate-800">จัดการพนักงาน</h1>
-          <button 
-            onClick={handleNew} 
+          <button
+            onClick={handleNew}
             className="w-10 h-10 bg-blue-600 rounded-full shadow-lg text-white flex items-center justify-center hover:bg-blue-700 transition active:scale-95"
           >
             <Plus weight="bold" size={20} />
           </button>
         </div>
-        
+
         {/* Search Bar */}
         <div className="flex gap-2 mb-2">
           <div className="flex-1 bg-white border border-slate-200 rounded-xl px-3 py-2.5 flex items-center gap-2 shadow-sm">
@@ -92,21 +103,21 @@ export default function People() {
       <main className="flex-1 overflow-y-auto no-scrollbar px-6 pb-6 pt-2">
         <div className="space-y-3">
           {isLoading ? (
-             <div className="text-center py-10 text-slate-400 text-xs">กำลังโหลดข้อมูล...</div>
+            <div className="text-center py-10 text-slate-400 text-xs">กำลังโหลดข้อมูล...</div>
           ) : employees.length === 0 ? (
             <div className="text-center py-10 opacity-50">
-               <p>ยังไม่มีพนักงาน</p>
-               <p className="text-xs">กดปุ่ม + เพื่อเริ่มสร้างทีมของคุณ</p>
+              <p>ยังไม่มีพนักงาน</p>
+              <p className="text-xs">กดปุ่ม + เพื่อเริ่มสร้างทีมของคุณ</p>
             </div>
           ) : (
             employees.map((emp) => (
-              <div 
-                key={emp.id} 
-                onClick={() => handleEdit(emp)} 
+              <div
+                key={emp.id}
+                onClick={() => handleEdit(emp)}
                 className={`modern-card p-4 flex items-center gap-4 cursor-pointer active:scale-95 transition relative group bg-white rounded-2xl border border-slate-100 shadow-sm ${emp.status === 'resigned' ? 'grayscale opacity-60' : ''}`}
               >
                 <img src={`https://ui-avatars.com/api/?name=${emp.name}&background=random`} className="w-12 h-12 rounded-full border border-slate-100 shadow-sm" alt={emp.name} />
-                
+
                 <div className="flex-1">
                   <div className="flex justify-between items-start">
                     <h3 className="font-bold text-slate-800">{emp.name}</h3>
@@ -116,17 +127,17 @@ export default function People() {
                   </div>
                   <p className="text-xs text-slate-500">{emp.position || 'ไม่ระบุตำแหน่ง'} • {emp.type || 'Full Time'}</p>
                   <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
-                    <Money weight="fill"/> {emp.salary ? Number(emp.salary).toLocaleString() : '0'}
+                    <Money weight="fill" /> {emp.salary ? Number(emp.salary).toLocaleString() : '0'}
                   </p>
                 </div>
 
                 <div className="flex flex-col gap-2 z-10">
-                   <button className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition">
-                      <PencilSimple weight="bold" />
-                   </button>
-                   <button onClick={(e) => handleOpenWarning(e, emp)} className="w-8 h-8 flex items-center justify-center rounded-full bg-rose-50 text-rose-400 hover:text-rose-600 hover:bg-rose-100 transition" title="ออกใบเตือน">
-                      <WarningCircle weight="fill" />
-                   </button>
+                  <button className="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition">
+                    <PencilSimple weight="bold" />
+                  </button>
+                  <button onClick={(e) => handleOpenWarning(e, emp)} className="w-8 h-8 flex items-center justify-center rounded-full bg-rose-50 text-rose-400 hover:text-rose-600 hover:bg-rose-100 transition" title="ออกใบเตือน">
+                    <WarningCircle weight="fill" />
+                  </button>
                 </div>
               </div>
             ))
@@ -136,12 +147,13 @@ export default function People() {
 
       {/* --- MODALS --- */}
       {EmployeeModal && (
-        <EmployeeModal 
-            isOpen={isModalOpen} 
-            onClose={() => setIsModalOpen(false)} 
-            employee={selectedEmployee} 
-            onSave={handleSaveEmployee}
-            isLoading={isSaving}
+        <EmployeeModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          employee={selectedEmployee}
+          onSave={handleSaveEmployee}
+          onDelete={handleDeleteEmployee}
+          isLoading={isSaving}
         />
       )}
 

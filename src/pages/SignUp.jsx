@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '@/features/auth/useAuth';
 import { Storefront, User, LockKey, CircleNotch } from '@phosphor-icons/react';
 
 export default function SignUp() {
@@ -10,7 +10,7 @@ export default function SignUp() {
   const [companyName, setCompanyName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  
+
   const { signupOwner } = useAuth();
   const navigate = useNavigate();
 
@@ -42,25 +42,25 @@ export default function SignUp() {
           <div>
             <label className="text-[10px] font-bold text-slate-400 uppercase">ชื่อร้าน / บริษัท</label>
             <div className="relative">
-              <input type="text" required value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 text-sm outline-none" placeholder="เช่น ร้านกาแฟปรายมี่"/>
+              <input type="text" required value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 text-sm outline-none" placeholder="เช่น ร้านกาแฟปรายมี่" />
               <Storefront className="absolute left-3 top-3.5 text-slate-400" size={18} weight="bold" />
             </div>
           </div>
           <div>
             <label className="text-[10px] font-bold text-slate-400 uppercase">ชื่อเจ้าของ</label>
             <div className="relative">
-              <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 text-sm outline-none" placeholder="ชื่อ-นามสกุล"/>
+              <input type="text" required value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 text-sm outline-none" placeholder="ชื่อ-นามสกุล" />
               <User className="absolute left-3 top-3.5 text-slate-400" size={18} weight="bold" />
             </div>
           </div>
           <div>
             <label className="text-[10px] font-bold text-slate-400 uppercase">อีเมล (Login)</label>
-            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-sm outline-none" placeholder="email@example.com"/>
+            <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 px-4 text-sm outline-none" placeholder="email@example.com" />
           </div>
           <div>
             <label className="text-[10px] font-bold text-slate-400 uppercase">รหัสผ่าน</label>
             <div className="relative">
-              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 text-sm outline-none" placeholder="******"/>
+              <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl py-3 pl-10 text-sm outline-none" placeholder="******" />
               <LockKey className="absolute left-3 top-3.5 text-slate-400" size={18} weight="bold" />
             </div>
           </div>
@@ -69,7 +69,7 @@ export default function SignUp() {
             {loading ? <CircleNotch className="animate-spin" size={20} /> : "ลงทะเบียนเจ้าของร้าน"}
           </button>
         </form>
-        
+
         <div className="mt-4 text-center text-xs text-slate-400">
           มีบัญชีอยู่แล้ว? <Link to="/login" className="text-blue-600 font-bold hover:underline">เข้าสู่ระบบ</Link>
         </div>
