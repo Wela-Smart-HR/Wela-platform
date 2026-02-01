@@ -10,6 +10,9 @@ cd ..
 =======
 REM ไปที่โฟลเดอร์ project
 cd C:\Users\heart\OneDrive\Desktop\Wela\smart-hr
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes
 
 REM เช็คว่า node มีไหม
