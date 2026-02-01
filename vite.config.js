@@ -47,7 +47,7 @@ export default defineConfig({
       },
 
       devOptions: {
-        enabled: true,
+        enabled: false, // ❌ ปิด PWA ตอน Dev จะได้ไม่ Cache
         type: 'module',
       },
     })

@@ -1,11 +1,8 @@
 @echo off
 title Smart-HR Dev Server
 
-REM ไปที่โฟลเดอร์ src
-cd /d G:\Dev\smart-hr\src
-
-REM ถอยกลับไป root (ที่มี package.json)
-cd ..
+REM ไปที่โฟลเดอร์ project
+cd /d G:\Dev\Wela-platform
 
 REM เช็คว่า node มีไหม
 node -v >nul 2>&1

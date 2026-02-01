@@ -5,9 +5,9 @@ import {
   Money, WarningCircle, CheckCircle
 } from '@phosphor-icons/react';
 
-// ✅ Import Hook ที่เราเพิ่งสร้าง
-import { useEmployees } from '../../hooks/admin/useEmployees';
-import { useDialog } from '../../contexts/DialogContext'; // ✅ 1. Import Dialog
+// ✅ Import Hook จาก Features Architecture
+import { usePeopleAdmin } from '../../features/people/usePeopleAdmin';
+import { useDialog } from '../../contexts/DialogContext';
 
 // Components
 import EmployeeModal from '../../components/admin/EmployeeModal';
@@ -17,8 +17,8 @@ export default function People() {
   const { currentUser } = useAuth();
   const dialog = useDialog(); // ✅ 2. เรียกใช้ Dialog
 
-  // ✅ เรียกใช้ Logic จาก Hook บรรทัดเดียวจบ!
-  const { employees, isLoading, addEmployee, updateEmployee, deleteEmployee } = useEmployees(currentUser?.companyId);
+  // ✅ เรียกใช้ Logic จาก Features Hook
+  const { employees, loading, createEmployee, updateEmployee, deleteEmployee } = usePeopleAdmin(currentUser?.companyId, currentUser);
 
   // --- UI STATE ---
   // ❌ ลบ showSuccess ออก เพราะเราจะใช้ Global Dialog แทนครับ
@@ -38,8 +38,8 @@ export default function People() {
         await updateEmployee(selectedEmployee.id, updateData);
 
       } else {
-        // 🔥 LOGIC 2: สร้างใหม่ (เรียกใช้ addEmployee จาก Hook)
-        await addEmployee(formData, formData.password);
+        // 🔥 LOGIC 2: สร้างใหม่ (เรียกใช้ createEmployee จาก Hook)
+        await createEmployee(formData, formData.password);
       }
 
       // Success Flow
@@ -102,7 +102,7 @@ export default function People() {
       {/* CONTENT LIST */}
       <main className="flex-1 overflow-y-auto no-scrollbar px-6 pb-6 pt-2">
         <div className="space-y-3">
-          {isLoading ? (
+          {loading ? (
             <div className="text-center py-10 text-slate-400 text-xs">กำลังโหลดข้อมูล...</div>
           ) : employees.length === 0 ? (
             <div className="text-center py-10 opacity-50">

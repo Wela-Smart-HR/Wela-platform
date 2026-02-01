@@ -9,7 +9,7 @@ import { authService } from '../auth/auth.service';
  * @param {Object} currentUser - Current logged-in user
  * @returns {Object}
  */
-export function usePeople(companyId, currentUser) {
+export function usePeopleAdmin(companyId, currentUser) {
     const [employees, setEmployees] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -63,8 +63,9 @@ export function usePeople(companyId, currentUser) {
         try {
             setLoading(true);
 
-            // Validate updates
-            const validation = validateEmployeeData({ ...employees.find(e => e.id === employeeId), ...updates });
+            // Merge existing employee data with updates, pass isUpdate=true
+            const existingEmployee = employees.find(e => e.id === employeeId);
+            const validation = validateEmployeeData({ ...existingEmployee, ...updates }, true);
             if (!validation.valid) {
                 throw new Error(validation.error);
             }
