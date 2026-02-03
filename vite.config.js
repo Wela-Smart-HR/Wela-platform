@@ -55,5 +55,26 @@ export default defineConfig({
   // ✅ เพิ่มก้อนนี้เข้าไปครับ (บอกให้ยอมรับทุกชื่อเว็บ)
   server: {
     allowedHosts: true
+  },
+  // ✅ Chunk Splitting (แบ่งไฟล์ให้โหลดเร็วขึ้น)
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // แยก Firebase ออกมาต่างหาก
+          if (id.includes('firebase')) {
+            return 'firebase';
+          }
+          // แยก Library กราฟิก/ไอคอน
+          if (id.includes('phosphor-icons') || id.includes('lucide')) {
+            return 'icons';
+          }
+          // แยก Node Modules ทั่วไป
+          if (id.includes('node_modules')) {
+            return 'vendor';
+          }
+        }
+      }
+    }
   }
 })
