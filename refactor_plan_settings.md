@@ -1,14 +1,14 @@
 # 🛠️ แผนการผ่าตัดหน้าตั้งค่า (Settings Refactor Plan)
 **เป้าหมาย**: แยกชิ้นส่วนหน้า `Settings.jsx` ที่บวมและแก้ยาก ให้เป็นระเบียบ "แก้ 1 กระทบ 1"
-**กำหนดการ**: เริ่มทำพรุ่งนี้ (หรือเมื่อพร้อม)
+**สถานะ**: ✅ เสร็จสิ้นเฟส 1 (แยก Component แล้ว)
 
 ---
 
-## 1. ภารกิจหลัก: แยกไฟล์ตามหน้าที่ (Decomposition)
+## 1. ภารกิจหลัก: แยกไฟล์ตามหน้าที่ (Decomposition) [DONE]
 
 ปัจจุบัน `Settings.jsx` ทำทุกอย่าง เราจะย้าย Logic ไปบ้านใหม่ดังนี้:
 
-### 🏠 บ้านหลังที่ 1: จัดการกะงาน (Shift)
+### 🏠 บ้านหลังที่ 1: จัดการกะงาน (Shift) [✅ Done]
 - **ไฟล์ใหม่**: `src/components/admin/settings/ShiftManager.jsx`
 - **หน้าที่**: 
   - แสดงรายการกะงานทั้งหมด
@@ -16,7 +16,7 @@
   - Modal Form สำหรับกรอกข้อมูลกะ
   - Code เรียงลำดับเวลา (Sort Function)
 
-### 🏠 บ้านหลังที่ 2: จัดการ OT (Overtime)
+### 🏠 บ้านหลังที่ 2: จัดการ OT (Overtime) [✅ Done]
 - **ไฟล์ใหม่**: `src/components/admin/settings/OTManager.jsx`
 - **หน้าที่**:
   - แสดงรายการประเภท OT
@@ -24,7 +24,7 @@
   - Toggle เปิด/ปิด OT
   - Modal Form สำหรับกรอก Rate
 
-### 🏠 บ้านหลังที่ 3: กฎระเบียบ & GPS (Rules)
+### 🏠 บ้านหลังที่ 3: กฎระเบียบ & GPS (Rules) [✅ Done]
 - **ไฟล์ใหม่**: `src/components/admin/settings/GeneralRules.jsx`
 - **หน้าที่**:
   - ปุ่ม "ดึง GPS" และ "แผนที่"
@@ -34,7 +34,7 @@
 
 ---
 
-## 2. หน้าหลัก (Settings.jsx) จะเหลือแค่นี้
+## 2. หน้าหลัก (Settings.jsx) จะเหลือแค่นี้ [✅ Done]
 จากเดิม 500+ บรรทัด จะเหลือแค่โครงเปล่าๆ แบบนี้ครับ:
 
 ```jsx
@@ -46,9 +46,9 @@ export default function Settings() {
       <Header />
       <Tabs>
          {/* เรียกใช้ Component ย่อยที่แยกไป */}
-         <GeneralRules data={settings} onSave={saveAll} />
-         <ShiftManager data={settings.shifts} onSave={saveAll} />
-         <OTManager data={settings.otTypes} onSave={saveAll} />
+         <GeneralRules settings={settings} onChange={updateSettings} />
+         <ShiftManager shifts={settings.shifts} onChange={updateSettings} />
+         <OTManager otTypes={settings.otTypes} onChange={updateSettings} />
       </Tabs>
     </div>
   );
@@ -75,5 +75,5 @@ export default function Settings() {
   - สมัคร API Key ของ Longdo Map (ฟรี)
   - รื้อ `LocationPickerMap.jsx` มาเปลี่ยนไส้ในใหม่
   
-*หมายเหตุ: พักเรื่องแผนที่ไว้ก่อน พรุ่งนี้ค่อยมาลุยแยก Component กันต่อ*
+*หมายเหตุ: เฟสถัดไปคือการทำ Map API*
 SCK
