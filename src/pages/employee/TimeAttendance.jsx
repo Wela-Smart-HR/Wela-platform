@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../shared/lib/firebase';
-import AttendanceMiniMap from '../../components/employee/AttendanceMiniMap';
-import LocationHelpModal from '../../components/employee/LocationHelpModal';
 import {
     MapPin, Fingerprint, CheckCircle, X, CalendarBlank, Timer,
     WarningCircle, SignOut, ClockCounterClockwise,
@@ -12,13 +10,18 @@ import {
     CaretLeft, CaretRight, Briefcase, ArrowsClockwise, Info
 } from '@phosphor-icons/react';
 
+// Hooks
 import { useSalaryCalculator } from '../../hooks/useSalaryCalculator';
 import { useDialog } from '../../contexts/DialogContext';
-
-// ✅ NEW: Hook จาก Features Architecture (พร้อมใช้ในการ refactor ต่อ)
 import { useMyAttendance } from '../../features/attendance/useMyAttendance';
 
-// === Utility ===
+// Components (Lazy Load for Performance)
+const AttendanceMiniMap = React.lazy(() => import('../../components/employee/AttendanceMiniMap'));
+const LocationHelpModal = React.lazy(() => import('../../components/employee/LocationHelpModal'));
+import LiveClock from '../../components/employee/LiveClock';
+import HoldButton from '../../components/employee/HoldButton';
+
+// Utilities
 const formatDateForInput = (dateObj) => {
     if (!dateObj || !(dateObj instanceof Date) || isNaN(dateObj)) return '';
     const year = dateObj.getFullYear();
@@ -27,6 +30,8 @@ const formatDateForInput = (dateObj) => {
     return `${year}-${month}-${day}`;
 };
 
+const formatTime = (timestamp) => timestamp ? timestamp.toDate().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+
 export default function TimeAttendance() {
     const { currentUser } = useAuth();
     const locationRoute = useLocation();
@@ -34,55 +39,35 @@ export default function TimeAttendance() {
     const dialog = useDialog();
 
     // ===================================================
-    // 📦 STATE - ต้องประกาศก่อน Hook
+    // 📦 STATE - UI
     // ===================================================
     const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [activeTab, setActiveTab] = useState(locationRoute.state?.defaultTab || 'scan');
+    const [showMap, setShowMap] = useState(false);
+    const [showHelp, setShowHelp] = useState(false);
 
     // ===================================================
-    // 🎯 ใช้ Hook จาก Features Architecture
+    // 🎯 Use Hooks
     // ===================================================
-    // Hook นี้จัดการ: GPS, Config, Clock In/Out, Offline, Logs
-    // ดู useMyAttendance.js สำหรับรายละเอียด
     const {
-        // GPS
         location: hookLocation,
         locationStatus: hookLocationStatus,
         distance: hookDistance,
         gpsError: hookGpsError,
         retryGps,
-
-        // Config
         companyConfig: hookCompanyConfig,
-
-        // Data
         todayRecord: hookTodayRecord,
-        attendanceLogs: hookAttendanceLogs,  // ✅ ประวัติรายเดือน
-        schedules: hookSchedules,            // ✅ ตารางเวลา
-        todaySchedule: hookTodaySchedule,    // ✅ ตารางวันนี้
-
-        // สถานะ
+        attendanceLogs: hookAttendanceLogs,
+        schedules: hookSchedules,
+        todaySchedule: hookTodaySchedule,
         loading: hookLoading,
         isOffline,
-
-        // ===== Actions =====
         clockIn: hookClockIn,
         clockOut: hookClockOut,
-        submitRetroRequest: hookSubmitRetro,  // ✅ ส่งขอเวลาย้อนหลัง
-        syncOfflineData: hookSyncOffline,      // ✅ Sync offline
-        reload: reloadTodayRecord
+        submitRetroRequest: hookSubmitRetro,
     } = useMyAttendance(currentUser?.uid, currentUser?.companyId, currentMonth);
 
-    // ===================================================
-    // 📦 STATE - UI เท่านั้น (ไม่เกี่ยวกับ business logic)
-    // ===================================================
-    const [activeTab, setActiveTab] = useState(locationRoute.state?.defaultTab || 'scan');
-    const [currentTime, setCurrentTime] = useState(new Date());
-    const [showMap, setShowMap] = useState(false);
-    const [showHelp, setShowHelp] = useState(false);
-
-    // ===================================================
-    // 📊 STATE - จาก Hook (ไม่ต้อง useState)
-    // ===================================================
+    // Mapped State
     const currentLocation = hookLocation;
     const locationStatus = hookLocationStatus || 'loading';
     const distance = hookDistance;
@@ -94,8 +79,7 @@ export default function TimeAttendance() {
     const schedules = hookSchedules || [];
     const todaySchedule = hookTodaySchedule;
 
-    // ===================================================
-    // 📦 STATE - UI Only
+    // UI Action State
     const [clocking, setClocking] = useState(false);
     const [filterType, setFilterType] = useState('All');
     const [expandedId, setExpandedId] = useState(null);
@@ -105,83 +89,66 @@ export default function TimeAttendance() {
     const [greetingMessage, setGreetingMessage] = useState({ title: '', text: '', isLate: false, type: 'in' });
     const popupTimeoutRef = useRef(null);
 
-    // Hold Button Interaction
-    const [isHolding, setIsHolding] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const holdIntervalRef = useRef(null);
-    const HOLD_DURATION = 1500;
+    // ===================================================
+    // ⚡️ Performance Optimization (Memoization)
+    // ===================================================
+    const { dailyBreakdown } = useSalaryCalculator(
+        attendanceList,
+        schedules,
+        deductionConfig,
+        currentMonth,
+        deductionConfig.employmentType
+    );
 
-    // ⏰ Clock Timer
-    useEffect(() => {
-        const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-        return () => clearInterval(timer);
-    }, []);
-
-    const { dailyBreakdown } = useSalaryCalculator(attendanceList, schedules, deductionConfig, currentMonth, deductionConfig.employmentType);
-
-    const sortedLogs = dailyBreakdown
-        .filter(item => {
-            if (filterType === 'All') return true;
-            if (filterType === 'Late') return item.status === 'late';
-            if (filterType === 'Absent') return item.status === 'absent';
-            if (filterType === 'Deducted') return item.deduction > 0;
-            return true;
-        })
-        .sort((a, b) => b.date - a.date);
+    const sortedLogs = useMemo(() => {
+        return dailyBreakdown
+            .filter(item => {
+                if (filterType === 'All') return true;
+                if (filterType === 'Late') return item.status === 'late';
+                if (filterType === 'Absent') return item.status === 'absent';
+                if (filterType === 'Deducted') return item.deduction > 0;
+                return true;
+            })
+            .sort((a, b) => b.date - a.date);
+    }, [dailyBreakdown, filterType]);
 
     const changeMonth = (offset) => { setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + offset, 1)); };
+    const displayDate = new Date();
+    const isClockIn = !todayRecord || todayRecord.actionType === 'clock-out';
 
-    const startHold = () => {
+    // ===================================================
+    // ⏰ Actions
+    // ===================================================
+    const handleAttemptClock = () => {
         if (clocking || activeTab !== 'scan' || locationStatus !== 'success') {
             if (locationStatus === 'out-of-range') {
                 dialog.showAlert(`คุณอยู่นอกพื้นที่ (${Math.round(distance)} ม.)\nกรุณาขยับเข้าใกล้ร้าน`, "Out of Range", "error");
             }
             else if (locationStatus === 'error' || locationStatus === 'loading') {
-                // ลองเรียก GPS อีกรอบเผื่อมันหลับ
                 retryGps();
                 dialog.showAlert(gpsErrorMsg || "กำลังค้นหาพิกัด...", "GPS", "warning");
             }
             return;
         }
-        setIsHolding(true);
-        let startTime = Date.now();
-        holdIntervalRef.current = setInterval(() => {
-            const elapsed = Date.now() - startTime;
-            const newProgress = Math.min((elapsed / HOLD_DURATION) * 100, 100);
-            setProgress(newProgress);
-            if (newProgress >= 100) {
-                clearInterval(holdIntervalRef.current);
-                if (navigator.vibrate) navigator.vibrate(50);
-                const actionType = (!todayRecord || todayRecord.actionType === 'clock-out') ? 'clock-in' : 'clock-out';
-                handleClockAction(actionType);
-                setIsHolding(false); setProgress(0);
-            }
-        }, 10);
+
+        const actionType = (!todayRecord || todayRecord.actionType === 'clock-out') ? 'clock-in' : 'clock-out';
+        performClockAction(actionType);
     };
-    const cancelHold = () => { if (progress < 100) { setIsHolding(false); setProgress(0); clearInterval(holdIntervalRef.current); } };
 
-    // ===================================================
-    // ⏰ CLOCK IN/OUT - ใช้จาก Hook
-    // ===================================================
-    const handleClockAction = async (type) => {
+    const performClockAction = async (type) => {
         setClocking(true);
-
         try {
             let result;
-
             if (type === 'clock-in') {
-                // ส่ง schedule data สำหรับคำนวณสาย
                 result = await hookClockIn({ scheduleData: todaySchedule });
             } else {
                 result = await hookClockOut();
             }
 
             if (result.success) {
-                // ✅ ถ้า Offline ให้แจ้งเตือนแบบเดิม
                 if (result.offline) {
                     dialog.showAlert("ไม่มีสัญญาณอินเทอร์เน็ต\nบันทึกข้อมูลในเครื่องแล้ว ระบบจะอัปโหลดเมื่อมีสัญญาณ", "Offline Mode", "warning");
                 } else {
-                    // แสดง Greeting Popup
                     setGreetingMessage({
                         title: result.message,
                         text: '',
@@ -193,7 +160,6 @@ export default function TimeAttendance() {
                     popupTimeoutRef.current = setTimeout(() => setShowGreetingPopup(false), 5000);
                 }
             } else {
-                // แสดง error
                 dialog.showAlert(result.message, "Error", "error");
             }
         } catch (err) {
@@ -204,9 +170,6 @@ export default function TimeAttendance() {
         }
     };
 
-    // ===================================================
-    // 📝 RETRO REQUEST - ใช้จาก Hook
-    // ===================================================
     const handleRetroSubmit = async () => {
         if (!retroForm.date || !retroForm.timeIn || !retroForm.timeOut || !retroForm.reason) {
             return dialog.showAlert("กรุณากรอกข้อมูลให้ครบถ้วน", "ข้อมูลไม่ครบ", "warning");
@@ -228,17 +191,6 @@ export default function TimeAttendance() {
         }
     };
 
-    const formatTime = (timestamp) => timestamp ? timestamp.toDate().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '--:--';
-    const isClockIn = !todayRecord || todayRecord.actionType === 'clock-out';
-    const accentColor = isClockIn ? 'text-[#007AFF]' : 'text-[#FF3B30]';
-    const ringColor = isClockIn ? '#007AFF' : '#FF3B30';
-    const glowColor = isClockIn ? 'shadow-[0_20px_50px_-12px_rgba(0,122,255,0.3)]' : 'shadow-[0_20px_50px_-12px_rgba(255,59,48,0.3)]';
-
-    const btnSize = 340;
-    const radius = 135;
-    const circumference = 2 * Math.PI * radius;
-    const strokeDashoffset = circumference - (progress / 100) * circumference;
-
     return (
         <div className="h-[100dvh] bg-[#F2F2F7] font-sans text-slate-900 relative overflow-hidden select-none flex flex-col">
 
@@ -249,12 +201,22 @@ export default function TimeAttendance() {
                 </div>
             )}
 
-            {/* Header & Tabs */}
+            {/* ✅ Loading Overlay */}
+            {hookLoading && (
+                <div className="absolute inset-0 z-50 bg-white/50 backdrop-blur-sm flex items-center justify-center">
+                    <div className="flex flex-col items-center animate-pulse">
+                        <Crosshair className="animate-spin text-blue-500 mb-2" size={32} />
+                        <p className="text-xs font-bold text-slate-500">Syncing data...</p>
+                    </div>
+                </div>
+            )}
+
+            {/* Header */}
             <div className="relative z-10 px-6 pt-8 pb-2 shrink-0">
                 <div className="flex justify-between items-start mb-4">
                     <div>
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">
-                            {currentTime.toLocaleDateString('en-US', { weekday: 'long' })}, {currentTime.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
+                            {displayDate.toLocaleDateString('en-US', { weekday: 'long' })}, {displayDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
                         </p>
                         <h1 className="text-3xl font-extrabold text-[#1C1C1E] tracking-tight">Attendance</h1>
                     </div>
@@ -273,12 +235,11 @@ export default function TimeAttendance() {
                 </div>
             </div>
 
-            {/* === TAB 1: SCAN (UI Layout Fixed here!) === */}
+            {/* === TAB 1: SCAN === */}
             {activeTab === 'scan' && (
-                // ✅ FIX: เปลี่ยนจาก justify-evenly เป็น justify-start + gap-8 + padding-top
                 <div className="relative z-10 px-6 flex-1 flex flex-col items-center justify-start gap-8 pt-8 pb-24 animate-fade-in">
 
-                    {/* Shift & Location Status */}
+                    {/* Shift Info & Status */}
                     <div className="flex items-center justify-center gap-2 w-full">
                         <div className="flex items-center gap-2 bg-white/60 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white/50 shadow-sm">
                             <Briefcase size={14} className="text-slate-500" weight="duotone" />
@@ -286,84 +247,41 @@ export default function TimeAttendance() {
                                 {todaySchedule ? `${todaySchedule.startTime} - ${todaySchedule.endTime}` : "No shift"}
                             </span>
                         </div>
-
                         <div className="flex items-center gap-1">
                             <div
-                                onClick={() => {
-                                    // กดที่สถานะเพื่อบังคับโหลด GPS ใหม่
-                                    retryGps();
-                                    setShowMap(true);
-                                }}
+                                onClick={() => { retryGps(); setShowMap(true); }}
                                 className={`backdrop-blur-md px-3 py-1.5 rounded-full shadow-sm border flex items-center gap-1.5 transition-all cursor-pointer active:scale-95 ${locationStatus === 'success' ? 'bg-emerald-50/80 border-emerald-100 text-emerald-600' : (locationStatus === 'out-of-range' ? 'bg-orange-50 border-orange-200 text-orange-600' : locationStatus === 'error' ? 'bg-red-50 border-red-200 text-red-600' : 'bg-slate-100 border-slate-200 text-slate-500')}`}
                             >
                                 {locationStatus === 'success' ? <CheckCircle weight="fill" size={14} /> :
                                     locationStatus === 'out-of-range' ? <WarningCircle weight="fill" size={14} /> :
                                         locationStatus === 'error' ? <ArrowsClockwise weight="bold" size={14} className="animate-pulse" /> :
                                             <Crosshair className="animate-spin" size={14} />}
-
                                 <span className="text-[10px] font-bold truncate max-w-[140px]">
                                     {locationStatus === 'success' ? "In Range" :
                                         locationStatus === 'out-of-range' ? "Out of Area" :
-                                            locationStatus === 'error' ? (gpsErrorMsg || "Retry GPS") :
-                                                "Locating..."}
+                                            locationStatus === 'error' ? (gpsErrorMsg || "Retry GPS") : "Locating..."}
                                 </span>
                             </div>
-
-                            <button
-                                onClick={() => setShowHelp(true)}
-                                className="w-8 h-8 bg-white/60 backdrop-blur-md rounded-full border border-white/50 shadow-sm flex items-center justify-center text-slate-400 hover:text-blue-500 hover:bg-white transition-all active:scale-95"
-                            >
+                            <button onClick={() => setShowHelp(true)} className="w-8 h-8 bg-white/60 backdrop-blur-md rounded-full border border-white/50 shadow-sm flex items-center justify-center text-slate-400 hover:text-blue-500 hover:bg-white transition-all active:scale-95">
                                 <Info weight="bold" size={16} />
                             </button>
                         </div>
                     </div>
 
-                    {/* Clock */}
-                    <div className="text-center relative">
-                        <h1 className="text-[5rem] font-bold text-[#1C1C1E] tracking-tighter tabular-nums drop-shadow-sm leading-none">
-                            {currentTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
-                        </h1>
-                        <span className={`text-sm font-bold tracking-tight mt-2 block ${accentColor}`}>
-                            {isClockIn ? 'Ready to Clock In' : 'Ready to Clock Out'}
-                        </span>
+                    {/* ✅ Uses LiveClock Component */}
+                    <LiveClock
+                        isClockIn={isClockIn}
+                        locationStatus={locationStatus}
+                        distance={distance}
+                    />
 
-                        {locationStatus === 'out-of-range' && distance && (
-                            <span className="text-[10px] text-orange-500 font-bold mt-1 block animate-pulse">
-                                ห่างจากจุดเช็คอิน {Math.round(distance)} เมตร
-                            </span>
-                        )}
-                    </div>
-
-                    {/* Fingerprint Button */}
-                    <div className="relative group flex items-center justify-center">
-                        <svg width={btnSize} height={btnSize} className="-rotate-90 transform drop-shadow-lg absolute pointer-events-none">
-                            <circle cx={btnSize / 2} cy={btnSize / 2} r={radius} fill="none" stroke="#E5E5EA" strokeWidth="8" strokeLinecap="round" />
-                            <circle
-                                cx={btnSize / 2} cy={btnSize / 2} r={radius} fill="none" stroke={ringColor} strokeWidth="8"
-                                strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset}
-                                className="transition-all duration-75 ease-linear"
-                            />
-                        </svg>
-                        <div
-                            className="z-10"
-                            onMouseDown={startHold} onMouseUp={cancelHold} onMouseLeave={cancelHold}
-                            onTouchStart={startHold} onTouchEnd={cancelHold}
-                        >
-                            <div
-                                className={`w-60 h-60 rounded-full bg-white flex items-center justify-center transition-all duration-300 cursor-pointer select-none ${glowColor} 
-                        ${isHolding ? 'scale-95 shadow-[inset_0_4px_12px_rgba(0,0,0,0.05)]' : 'shadow-[0_25px_60px_-15px_rgba(0,0,0,0.1)] hover:scale-105'}
-                        ${locationStatus !== 'success' ? 'opacity-50 grayscale cursor-not-allowed' : ''} 
-                        `}
-                            >
-                                <div className="flex flex-col items-center gap-2">
-                                    <Fingerprint weight="fill" className={`w-28 h-28 transition-colors duration-300 ${accentColor} ${isHolding ? 'animate-pulse' : ''}`} />
-                                    <span className="text-[11px] font-bold text-slate-300 tracking-[0.2em] uppercase mt-2">
-                                        {isHolding ? "HOLDING..." : "HOLD"}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                    {/* ✅ Uses Extracted HoldButton */}
+                    <HoldButton
+                        onAction={handleAttemptClock}
+                        disabled={clocking || locationStatus !== 'success'}
+                        isClockIn={isClockIn}
+                        locationStatus={locationStatus}
+                    />
 
                     <button
                         onClick={() => setIsRetroModalOpen(true)}
@@ -374,7 +292,7 @@ export default function TimeAttendance() {
                 </div>
             )}
 
-            {/* === TAB 2: TIME LOGS (เหมือนเดิม) === */}
+            {/* === TAB 2: LOGS === */}
             {activeTab === 'logs' && (
                 <div className="relative z-10 px-6 flex-1 overflow-y-auto no-scrollbar pb-28 animate-fade-in">
                     <div className="flex justify-between items-center mb-4 bg-white p-2 rounded-xl shadow-sm border border-slate-100 sticky top-0 z-20">
@@ -476,9 +394,11 @@ export default function TimeAttendance() {
                 </div>
             )}
 
-            {/* Helper Modals */}
-            <LocationHelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />
-            <AttendanceMiniMap isOpen={showMap} onClose={() => setShowMap(false)} userLocation={currentLocation} companyLocation={companyConfig.location} radius={companyConfig.radius} />
+            {/* Helper Modals (Lazy Loaded) */}
+            <Suspense fallback={null}>
+                {showHelp && <LocationHelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />}
+                {showMap && <AttendanceMiniMap isOpen={showMap} onClose={() => setShowMap(false)} userLocation={hookLocation} companyLocation={companyConfig?.location} radius={companyConfig?.radius} />}
+            </Suspense>
         </div>
     );
 }
