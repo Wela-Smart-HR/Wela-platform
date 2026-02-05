@@ -78,11 +78,11 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
                     where("date", "<=", endDay)
                 )),
 
-                // แก้: เพิ่ม where date
+                // แก้: ใช้ createdAt (Timestamp) เพื่อความชัวร์ (รองรับทั้งเก่าและใหม่)
                 getDocs(query(collection(db, "attendance"),
                     where("companyId", "==", companyId),
-                    where("date", ">=", startDay),
-                    where("date", "<=", endDay)
+                    where("createdAt", ">=", new Date(`${startDay}T00:00:00`)),
+                    where("createdAt", "<=", new Date(`${endDay}T23:59:59`))
                 )),
 
                 getDoc(doc(db, "companies", companyId)),

@@ -41,14 +41,15 @@ export const attendanceRepo = {
     async clockIn(data) {
         try {
             // 1. Write to Standard Collection (Detailed Log)
+            const dateStr = data.localTimestamp.split('T')[0]; // Extract YYYY-MM-DD
             const docRef = await addDoc(collection(db, 'attendance'), {
                 ...data,
+                date: dateStr, // ✅ Optimization: Add queryable date field
                 type: 'clock-in',
                 createdAt: serverTimestamp()
             });
 
             // 2. Zero-Cost Strategy: Updates
-            const dateStr = data.localTimestamp.split('T')[0];
 
             // 2.1 Update Daily Summary (Company Level)
             try {
@@ -97,14 +98,15 @@ export const attendanceRepo = {
     async clockOut(data) {
         try {
             // 1. Write to Standard Collection
+            const dateStr = data.localTimestamp.split('T')[0];
             const docRef = await addDoc(collection(db, 'attendance'), {
                 ...data,
+                date: dateStr, // ✅ Optimization: Add queryable date field
                 type: 'clock-out',
                 createdAt: serverTimestamp()
             });
 
             // 2. Zero-Cost Strategy: Updates
-            const dateStr = data.localTimestamp.split('T')[0];
 
             // 2.1 Update Daily Summary (Company Level)
             try {
