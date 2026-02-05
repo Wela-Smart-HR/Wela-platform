@@ -12,78 +12,47 @@ import {
     TrendUp, CaretRight, Warning, Lightning,
     Wallet, CheckCircle
 } from '@phosphor-icons/react';
+import { useDashboard } from '../../features/dashboard/useDashboard';
 
 export default function Dashboard() {
     const { currentUser } = useAuth();
     const navigate = useNavigate();
 
+    // --- CUSTOM HOOK (ZERO-COST) ---
+    const { companyName, stats } = useDashboard();
+
     // --- STATE ---
-    const [companyName, setCompanyName] = useState('กำลังโหลด...');
-    const [stats, setStats] = useState({
-        totalEmployees: 0,
-        activeNow: 0,
-        lateToday: 0,
-        payrollForecast: 0
-    });
+    // Note: companyName and stats are now managed by useDashboard
     const [pendingRequests, setPendingRequests] = useState([]);
     const [scheduleStatus, setScheduleStatus] = useState('missing');
 
     // --- DATA FETCHING ---
-    useEffect(() => {
-        async function fetchCompanyName() {
-            if (currentUser?.companyId) {
-                try {
-                    const docRef = doc(db, "companies", currentUser.companyId);
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) setCompanyName(docSnap.data().name || "My Company");
-                } catch (error) { console.error(error); }
-            }
-        }
-        fetchCompanyName();
-    }, [currentUser]);
-
+    // 1. Requests (Keep specific collection query for now, or move to hook later)
     useEffect(() => {
         if (!currentUser?.companyId) return;
 
-        // 1. Stats & Payroll
-        const qEmp = query(collection(db, "users"), where("companyId", "==", currentUser.companyId), where("role", "==", "employee"));
-        const unsubEmp = onSnapshot(qEmp, (snap) => {
-            let totalSalary = 0;
-            snap.forEach(doc => { totalSalary += Number(doc.data().salary) || 0; });
-            setStats(prev => ({ ...prev, totalEmployees: snap.size, payrollForecast: totalSalary }));
-        });
-
-        // 2. Attendance
-        const today = new Date(); today.setHours(0, 0, 0, 0);
-        const qAtt = query(collection(db, "attendance"), where("companyId", "==", currentUser.companyId), where("createdAt", ">=", today));
-        const unsubAtt = onSnapshot(qAtt, (snap) => {
-            let active = 0; let late = 0;
-            snap.forEach(doc => {
-                active++;
-                const t = doc.data().createdAt.toDate();
-                if (t.getHours() > 9 || (t.getHours() === 9 && t.getMinutes() > 0)) late++;
-            });
-            setStats(prev => ({ ...prev, activeNow: active, lateToday: late }));
-        });
-
-        // 3. Requests
         const qReq = query(collection(db, "requests"), where("companyId", "==", currentUser.companyId), where("status", "==", "pending"), orderBy("createdAt", "desc"), limit(10));
         const unsubReq = onSnapshot(qReq, (snapshot) => {
             const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setPendingRequests(docs);
         });
 
-        // 4. Check Schedule
-        const checkSchedule = async () => {
-            const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-            const dateStr = tomorrow.toISOString().split('T')[0];
-            const qSch = query(collection(db, "schedules"), where("companyId", "==", currentUser.companyId), where("date", "==", dateStr), limit(1));
-            const snap = await getDocs(qSch);
-            setScheduleStatus(snap.empty ? 'missing' : 'ready');
-        };
-        checkSchedule();
+        return () => unsubReq();
+    }, [currentUser]);
 
-        return () => { unsubEmp(); unsubAtt(); unsubReq(); };
+    // 3. Requests Logic already set above.
+
+    // 4. Check Schedule
+    const checkSchedule = async () => {
+        const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+        const dateStr = tomorrow.toISOString().split('T')[0];
+        const qSch = query(collection(db, "schedules"), where("companyId", "==", currentUser.companyId), where("date", "==", dateStr), limit(1));
+        const snap = await getDocs(qSch);
+        setScheduleStatus(snap.empty ? 'missing' : 'ready');
+    };
+    useEffect(() => {
+        if (!currentUser?.companyId) return;
+        checkSchedule();
     }, [currentUser]);
 
     const urgentAlerts = pendingRequests.filter(req => req.type === 'unscheduled_alert');

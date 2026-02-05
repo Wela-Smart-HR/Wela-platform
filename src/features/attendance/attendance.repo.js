@@ -1,4 +1,4 @@
-import { collection, addDoc, query, where, getDocs, orderBy, limit, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, orderBy, limit, serverTimestamp, Timestamp, doc, setDoc } from 'firebase/firestore';
 import { db } from '@/shared/lib/firebase';
 
 /**
@@ -12,11 +12,43 @@ export const attendanceRepo = {
      */
     async clockIn(data) {
         try {
-            return await addDoc(collection(db, 'attendance'), {
+            // 1. Write to Standard Collection (Detailed Log)
+            const docRef = await addDoc(collection(db, 'attendance'), {
                 ...data,
                 type: 'clock-in',
                 createdAt: serverTimestamp()
             });
+
+            // 2. Zero-Cost Strategy: Update Daily Summary Document
+            // Path: companies/{companyId}/daily_attendance/{YYYY-MM-DD}
+            try {
+                const todayStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+                const summaryRef = doc(db, 'companies', data.companyId, 'daily_attendance', todayStr);
+
+                // Prepare Denormalized Data
+                const userSummary = {
+                    timeIn: data.localTimestamp,
+                    status: data.status,
+                    location: data.location,
+                    timestamp: new Date().toISOString() // for sorting
+                };
+
+                // Merge data (create doc if not exists)
+                await setDoc(summaryRef, {
+                    date: todayStr,
+                    lastUpdated: serverTimestamp(),
+                    // Add user to map: "attendance.{userId}"
+                    attendance: {
+                        [data.userId]: userSummary
+                    }
+                }, { merge: true });
+
+            } catch (summaryError) {
+                console.error('⚠️ Failed to update Daily Summary (Non-fatal):', summaryError);
+                // Don't throw error here, as the main clock-in was successful
+            }
+
+            return docRef;
         } catch (error) {
             console.error('Error clocking in:', error);
             throw error;
@@ -30,11 +62,32 @@ export const attendanceRepo = {
      */
     async clockOut(data) {
         try {
-            return await addDoc(collection(db, 'attendance'), {
+            // 1. Write to Standard Collection
+            const docRef = await addDoc(collection(db, 'attendance'), {
                 ...data,
                 type: 'clock-out',
                 createdAt: serverTimestamp()
             });
+
+            // 2. Zero-Cost Strategy: Update Daily Summary
+            try {
+                const todayStr = new Date().toISOString().split('T')[0];
+                const summaryRef = doc(db, 'companies', data.companyId, 'daily_attendance', todayStr);
+
+                await setDoc(summaryRef, {
+                    attendance: {
+                        [data.userId]: {
+                            timeOut: data.localTimestamp,
+                            status: 'completed'
+                        }
+                    }
+                }, { merge: true });
+
+            } catch (summaryError) {
+                console.error('⚠️ Failed to update Daily Summary (Non-fatal):', summaryError);
+            }
+
+            return docRef;
         } catch (error) {
             console.error('Error clocking out:', error);
             throw error;
