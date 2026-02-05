@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useGlobalConfig } from '../../contexts/ConfigContext';
 import { db } from '../../shared/lib/firebase';
-import { doc, onSnapshot, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 
 /**
  * Hook for Admin Dashboard Logic (Zero-Cost Strategy)
@@ -9,9 +10,9 @@ import { doc, onSnapshot, getDoc } from 'firebase/firestore';
  */
 export function useDashboard() {
     const { currentUser } = useAuth();
+    const { companyConfig, loading: configLoading } = useGlobalConfig();
 
     // --- STATE ---
-    const [companyName, setCompanyName] = useState('กำลังโหลด...');
     const [stats, setStats] = useState({
         totalEmployees: 0,   // From company config/counter
         activeNow: 0,        // From daily summary
@@ -20,31 +21,18 @@ export function useDashboard() {
     });
     const [loading, setLoading] = useState(true);
 
-    // --- 1. Fetch Company Info (Once) ---
+    // --- 1. Sync from Global Config ---
     useEffect(() => {
-        async function fetchCompanyInfo() {
-            if (currentUser?.companyId) {
-                try {
-                    const docRef = doc(db, "companies", currentUser.companyId);
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        setCompanyName(data.name || "My Company");
-
-                        // If we have aggregated counters in company doc (Recommended for Zero-Cost)
-                        setStats(prev => ({
-                            ...prev,
-                            totalEmployees: data.totalEmployees || 0, // Fallback to 0 if not implemented yet
-                            payrollForecast: data.estimatedPayroll || 0
-                        }));
-                    }
-                } catch (error) {
-                    console.error("Error fetching company info:", error);
-                }
-            }
+        if (companyConfig) {
+            setStats(prev => ({
+                ...prev,
+                totalEmployees: companyConfig.totalEmployees || 0,
+                payrollForecast: companyConfig.estimatedPayroll || 0
+            }));
         }
-        fetchCompanyInfo();
-    }, [currentUser]);
+    }, [companyConfig]);
+
+    const companyName = companyConfig?.name || "My Company";
 
     // --- 2. Listen to Daily Summary (Real-time, Single Doc) ---
     useEffect(() => {

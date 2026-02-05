@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { ConfigProvider } from './contexts/ConfigContext';
 import { AppProvider } from './contexts/AppContext';
 import useSwipeBack from './hooks/useSwipeBack';
 
@@ -32,40 +33,54 @@ const ProtectedRoute = ({ children, allowedRole }) => {
   return children;
 };
 
+function AppContent() {
+  const { currentUser } = useAuth();
+
+  return (
+    <ConfigProvider companyId={currentUser?.companyId}>
+      <BrowserRouter>
+        <SwipeHandler />
+        <Routes>
+          {/* PUBLIC */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<SignUp />} />
+
+          {/* 🔴 ADMIN ROUTES */}
+          <Route element={
+            <ProtectedRoute allowedRole="owner">
+              <AdminLayout />
+            </ProtectedRoute>
+          }>
+            {adminRoutes.map((route, i) => (
+              <Route key={i} path={route.path} element={route.element} />
+            ))}
+          </Route>
+
+          {/* 🟢 EMPLOYEE ROUTES */}
+          <Route path="/connect" element={
+            <ProtectedRoute allowedRole="employee">
+              <EmployeeLayout />
+            </ProtectedRoute>
+          }>
+            {employeeRoutes.map((route, i) => (
+              <Route key={i} index={route.index} path={route.path} element={route.element} />
+            ))}
+          </Route>
+
+          {/* FALLBACK */}
+          <Route path="*" element={<Navigate to="/" />} />
+
+        </Routes>
+      </BrowserRouter>
+    </ConfigProvider>
+  );
+}
+
 function App() {
   return (
     <AppProvider>
       <AuthProvider>
-        <BrowserRouter>
-          <SwipeHandler />
-          <Routes>
-            {/* PUBLIC */}
-            <Route path="/login" element={<Login />} />
-            <Route path="/signup" element={<SignUp />} />
-
-            {/* 🔴 ADMIN ROUTES */}
-            <Route element={
-              <ProtectedRoute allowedRole="owner">
-                <AdminLayout />
-              </ProtectedRoute>
-            }>
-              {adminRoutes}
-            </Route>
-
-            {/* 🟢 EMPLOYEE ROUTES */}
-            <Route path="/connect" element={
-              <ProtectedRoute allowedRole="employee">
-                <EmployeeLayout />
-              </ProtectedRoute>
-            }>
-              {employeeRoutes}
-            </Route>
-
-            {/* FALLBACK */}
-            <Route path="*" element={<Navigate to="/" />} />
-
-          </Routes>
-        </BrowserRouter>
+        <AppContent />
       </AuthProvider>
     </AppProvider>
   );
