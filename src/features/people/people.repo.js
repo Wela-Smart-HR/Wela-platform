@@ -1,4 +1,4 @@
-import { collection, addDoc, query, where, getDocs, doc, getDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, doc, getDoc, updateDoc, deleteDoc, serverTimestamp, limit, startAfter } from 'firebase/firestore';
 import { db } from '@/shared/lib/firebase';
 
 /**
@@ -24,6 +24,43 @@ export const peopleRepo = {
             }));
         } catch (error) {
             console.error('Error getting employees:', error);
+            throw error;
+        }
+    },
+
+    /**
+     * Get employees with pagination (Load More)
+     * @param {string} companyId 
+     * @param {number} limitSize 
+     * @param {Object|null} lastDoc 
+     * @returns {Promise<{employees: Array, lastDoc: Object|null}>}
+     */
+    async getEmployeesPaginated(companyId, limitSize = 20, lastDoc = null) {
+        try {
+            let constraints = [
+                where('companyId', '==', companyId),
+                // orderBy('name'), // Requires Index, skipping for now to keep it Zero-Cost/Simple
+                limit(limitSize)
+            ];
+
+            if (lastDoc) {
+                constraints.push(startAfter(lastDoc));
+            }
+
+            const q = query(collection(db, 'users'), ...constraints);
+            const snap = await getDocs(q);
+
+            const employees = snap.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+
+            return {
+                employees,
+                lastDoc: snap.docs.length > 0 ? snap.docs[snap.docs.length - 1] : null
+            };
+        } catch (error) {
+            console.error('Error getting employees paginated:', error);
             throw error;
         }
     },

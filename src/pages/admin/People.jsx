@@ -18,7 +18,7 @@ export default function People() {
   const dialog = useDialog(); // ✅ 2. เรียกใช้ Dialog
 
   // ✅ เรียกใช้ Logic จาก Features Hook
-  const { employees, loading, createEmployee, updateEmployee, deleteEmployee } = usePeopleAdmin(currentUser?.companyId, currentUser);
+  const { employees, loading, createEmployee, updateEmployee, deleteEmployee, hasMore, loadMore } = usePeopleAdmin(currentUser?.companyId, currentUser);
 
   // --- UI STATE ---
   // ❌ ลบ showSuccess ออก เพราะเราจะใช้ Global Dialog แทนครับ
@@ -143,23 +143,39 @@ export default function People() {
             ))
           )}
         </div>
-      </main>
+
+        {/* LOAD MORE BUTTON */}
+        {
+          !loading && hasMore && employees.length > 0 && (
+            <div className="mt-4 text-center">
+              <button
+                onClick={loadMore}
+                className="text-sm text-blue-600 font-bold hover:bg-blue-50 px-4 py-2 rounded-full transition"
+              >
+                โหลดเพิ่มเติม (+20)
+              </button>
+            </div>
+          )
+        }
+      </main >
 
       {/* --- MODALS --- */}
-      {EmployeeModal && (
-        <EmployeeModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          employee={selectedEmployee}
-          onSave={handleSaveEmployee}
-          onDelete={handleDeleteEmployee}
-          isLoading={isSaving}
-        />
-      )}
+      {
+        EmployeeModal && (
+          <EmployeeModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
+            employee={selectedEmployee}
+            onSave={handleSaveEmployee}
+            onDelete={handleDeleteEmployee}
+            isLoading={isSaving}
+          />
+        )
+      }
 
       <WarningModal isOpen={isWarningModalOpen} onClose={() => setIsWarningModalOpen(false)} employee={warningTarget} />
 
       {/* ❌ ลบส่วน SUCCESS POPUP เดิมออกไปเลย เพราะใช้ Dialog แล้ว */}
-    </div>
+    </div >
   );
 }
