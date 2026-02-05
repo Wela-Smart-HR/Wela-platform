@@ -1,5 +1,33 @@
-import { collection, addDoc, query, where, getDocs, orderBy, limit, serverTimestamp, Timestamp, doc, setDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, orderBy, limit, serverTimestamp, Timestamp, doc, setDoc, increment, getDoc, arrayUnion } from 'firebase/firestore';
 import { db } from '@/shared/lib/firebase';
+
+/**
+ * Helper: Update User's Monthly Stats (Zero-Cost Aggregation)
+ * Path: users/{userId}/stats/{YYYY-MM}
+ */
+async function updateMonthlyStats(userId, companyId, dateStr, updates, eventData = null) {
+    try {
+        const monthStr = dateStr.substring(0, 7); // YYYY-MM
+        const statsRef = doc(db, 'users', userId, 'stats', monthStr);
+
+        const payload = {
+            companyId,
+            month: monthStr,
+            updatedAt: serverTimestamp(),
+            ...updates
+        };
+
+        if (eventData) {
+            payload.attendanceEvents = arrayUnion(eventData);
+        }
+
+        // Use setDoc with merge: true to create or update
+        await setDoc(statsRef, payload, { merge: true });
+
+    } catch (e) {
+        console.error('⚠️ Failed to update Monthly Stats:', e);
+    }
+}
 
 /**
  * Attendance Repository - Firestore operations for attendance
@@ -19,34 +47,40 @@ export const attendanceRepo = {
                 createdAt: serverTimestamp()
             });
 
-            // 2. Zero-Cost Strategy: Update Daily Summary Document
-            // Path: companies/{companyId}/daily_attendance/{YYYY-MM-DD}
-            try {
-                const todayStr = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-                const summaryRef = doc(db, 'companies', data.companyId, 'daily_attendance', todayStr);
+            // 2. Zero-Cost Strategy: Updates
+            const dateStr = data.localTimestamp.split('T')[0];
 
-                // Prepare Denormalized Data
+            // 2.1 Update Daily Summary (Company Level)
+            try {
+                const summaryRef = doc(db, 'companies', data.companyId, 'daily_attendance', dateStr);
                 const userSummary = {
                     timeIn: data.localTimestamp,
                     status: data.status,
                     location: data.location,
-                    timestamp: new Date().toISOString() // for sorting
+                    timestamp: new Date().toISOString()
                 };
 
-                // Merge data (create doc if not exists)
                 await setDoc(summaryRef, {
-                    date: todayStr,
+                    date: dateStr,
                     lastUpdated: serverTimestamp(),
-                    // Add user to map: "attendance.{userId}"
-                    attendance: {
-                        [data.userId]: userSummary
-                    }
+                    attendance: { [data.userId]: userSummary }
                 }, { merge: true });
+            } catch (summaryError) { console.error('⚠️ Daily Summary Error:', summaryError); }
 
-            } catch (summaryError) {
-                console.error('⚠️ Failed to update Daily Summary (Non-fatal):', summaryError);
-                // Don't throw error here, as the main clock-in was successful
-            }
+            // 2.2 Update Monthly Stats (User Level)
+            // Increment 'presentDays'. If late, increment 'lateCount'.
+            // Note: We can't easily calculate 'lateMins' here without schedule, unless passed in data.
+            // Assumption: 'data.status' == 'late' is accurate from frontend.
+            // Log Event for Payroll
+            await updateMonthlyStats(data.userId, data.companyId, dateStr, {
+                presentDays: increment(1),
+                lateCount: data.status === 'late' ? increment(1) : increment(0),
+                // lateMins: increment(data.lateMins || 0) // Future: Pass lateMins from frontend
+            }, {
+                type: 'clock-in',
+                time: data.localTimestamp,
+                status: data.status
+            });
 
             return docRef;
         } catch (error) {
@@ -69,11 +103,12 @@ export const attendanceRepo = {
                 createdAt: serverTimestamp()
             });
 
-            // 2. Zero-Cost Strategy: Update Daily Summary
-            try {
-                const todayStr = new Date().toISOString().split('T')[0];
-                const summaryRef = doc(db, 'companies', data.companyId, 'daily_attendance', todayStr);
+            // 2. Zero-Cost Strategy: Updates
+            const dateStr = data.localTimestamp.split('T')[0];
 
+            // 2.1 Update Daily Summary (Company Level)
+            try {
+                const summaryRef = doc(db, 'companies', data.companyId, 'daily_attendance', dateStr);
                 await setDoc(summaryRef, {
                     attendance: {
                         [data.userId]: {
@@ -82,10 +117,19 @@ export const attendanceRepo = {
                         }
                     }
                 }, { merge: true });
+            } catch (summaryError) { console.error('⚠️ Daily Summary Error:', summaryError); }
 
-            } catch (summaryError) {
-                console.error('⚠️ Failed to update Daily Summary (Non-fatal):', summaryError);
-            }
+            // 2.2 Update Monthly Stats (User Level)
+            // Calculate OT Hours if passed, or just record work hours
+            // For now, we rely on Frontend to pass 'otHours' if calculated, or we just increment checkOut count
+            // Log Event for Payroll
+            await updateMonthlyStats(data.userId, data.companyId, dateStr, {
+                // No scalar increments on clock-out for now, mostly handled in clock-in
+            }, {
+                type: 'clock-out',
+                time: data.localTimestamp,
+                status: 'completed'
+            });
 
             return docRef;
         } catch (error) {
