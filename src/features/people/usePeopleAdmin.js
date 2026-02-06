@@ -14,21 +14,51 @@ export function usePeopleAdmin(companyId, currentUser) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
 
+    // Pagination State
+    const [lastDoc, setLastDoc] = useState(null);
+    const [hasMore, setHasMore] = useState(true);
+    const LIMIT = 20;
+
     useEffect(() => {
         if (companyId) {
-            loadEmployees();
+            loadFirstPage();
         }
     }, [companyId]);
 
-    const loadEmployees = async () => {
+    const loadFirstPage = async () => {
         try {
             setLoading(true);
-            const data = await peopleRepo.getEmployeesByCompany(companyId);
-            const activeEmployees = filterActiveEmployees(data);
+            const { employees: newEmployees, lastDoc: newLast } = await peopleRepo.getEmployeesPaginated(companyId, LIMIT, null);
+            // Client-side filter for active (soft-delete check)
+            const activeEmployees = filterActiveEmployees(newEmployees);
+
             setEmployees(activeEmployees);
+            setLastDoc(newLast);
+            setHasMore(newEmployees.length === LIMIT); // If we got less than limit, no more data
             setError(null);
         } catch (err) {
             console.error('Error loading employees:', err);
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const loadMore = async () => {
+        if (!hasMore || loading) return;
+        try {
+            setLoading(true);
+            const { employees: newEmployees, lastDoc: newLast } = await peopleRepo.getEmployeesPaginated(companyId, LIMIT, lastDoc);
+            const activeEmployees = filterActiveEmployees(newEmployees);
+
+            setEmployees(prev => [...prev, ...activeEmployees]);
+            setLastDoc(newLast);
+
+            if (newEmployees.length < LIMIT) {
+                setHasMore(false);
+            }
+        } catch (err) {
+            console.error('Error loading more employees:', err);
             setError(err.message);
         } finally {
             setLoading(false);
@@ -71,7 +101,9 @@ export function usePeopleAdmin(companyId, currentUser) {
             }
 
             await peopleRepo.updateEmployee(employeeId, updates);
-            await loadEmployees();
+            // Optimistic update
+            setEmployees(prev => prev.map(e => e.id === employeeId ? { ...e, ...updates } : e));
+            // await loadEmployees(); // Don't reload, preserves pagination
             setError(null);
         } catch (err) {
             console.error('Error updating employee:', err);
@@ -109,7 +141,9 @@ export function usePeopleAdmin(companyId, currentUser) {
         employees,
         loading,
         error,
-        reload: loadEmployees,
+        hasMore,
+        loadMore,
+        reload: loadFirstPage,
         createEmployee,
         updateEmployee,
         deleteEmployee,

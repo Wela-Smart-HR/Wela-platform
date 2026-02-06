@@ -14,14 +14,12 @@ import Requests from '../../pages/admin/Requests';
  * Admin Routes Configuration
  * All routes for Owner/Admin users
  */
-export const adminRoutes = (
-    <>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/schedule" element={<Schedule />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/payroll" element={<Payroll />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/people" element={<People />} />
-        <Route path="/requests" element={<Requests />} />
-    </>
-);
+export const adminRoutes = [
+    { path: "/", element: <Dashboard /> },
+    { path: "/schedule", element: <Schedule /> },
+    { path: "/reports", element: <Reports /> },
+    { path: "/payroll", element: <Payroll /> },
+    { path: "/settings", element: <Settings /> },
+    { path: "/people", element: <People /> },
+    { path: "/requests", element: <Requests /> }
+];

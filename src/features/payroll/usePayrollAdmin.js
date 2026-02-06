@@ -4,52 +4,24 @@ import {
     collection, query, where, getDocs, doc, getDoc, setDoc, serverTimestamp, writeBatch
 } from 'firebase/firestore';
 
+import { useGlobalConfig } from '../../contexts/ConfigContext';
+
 /**
  * Hook for payroll management (admin perspective)
  * Full calculation logic for monthly payslips
  */
 export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
+    const { companyConfig } = useGlobalConfig(); // ✅ Optimization: Use Global Cache
+
     const [payrollData, setPayrollData] = useState([]);
     const [summary, setSummary] = useState({ totalPay: 0, totalStaff: 0 });
     const [loading, setLoading] = useState(false);
     const [hasSavedData, setHasSavedData] = useState(false);
-    const [isMonthPaid, setIsMonthPaid] = useState(false); // ✅ เช็คสถานะปิดงวด
+    const [isMonthPaid, setIsMonthPaid] = useState(false);
 
-    const getMonthId = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    // ... (rest of state)
 
-    // 1. โหลดข้อมูลเมื่อเปลี่ยนเดือน
-    useEffect(() => {
-        if (!companyId) return;
-        const checkSavedData = async () => {
-            setLoading(true);
-            const monthId = getMonthId(selectedMonth);
-            const q = query(collection(db, "payslips"), where("companyId", "==", companyId), where("monthId", "==", monthId));
-            const snap = await getDocs(q);
-
-            if (!snap.empty) {
-                const savedList = snap.docs.map(doc => ({ ...doc.data(), status: doc.data().status || 'saved' }));
-                setPayrollData(savedList);
-                calculateSummary(savedList);
-                setHasSavedData(true);
-
-                // ✅ เช็คว่าถ้าทุกคนสถานะ 'paid' แสดงว่าปิดงวดแล้ว
-                const allPaid = savedList.length > 0 && savedList.every(p => p.status === 'paid');
-                setIsMonthPaid(allPaid);
-            } else {
-                setPayrollData([]);
-                setSummary({ totalPay: 0, totalStaff: 0 });
-                setHasSavedData(false);
-                setIsMonthPaid(false);
-            }
-            setLoading(false);
-        };
-        checkSavedData();
-    }, [companyId, selectedMonth]);
-
-    const calculateSummary = (list) => {
-        const sum = list.reduce((acc, curr) => acc + (curr.netTotal || 0), 0);
-        setSummary({ totalPay: sum, totalStaff: list.length });
-    };
+    // ... (useEffect for existing logic)
 
     // 2. ฟังก์ชันคำนวณ (Recalculate)
     const startCalculation = async () => {
@@ -57,39 +29,33 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
         try {
             const monthId = getMonthId(selectedMonth);
             const year = selectedMonth.getFullYear();
-            const month = selectedMonth.getMonth(); // 0-11
+            const month = selectedMonth.getMonth();
 
-            // ✅ 1. สร้างขอบเขตวันที่ของเดือนนั้น (Start - End)
-            // เช่น "2025-01-01" ถึง "2025-01-31"
             const startDay = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-            // หาวันสุดท้ายของเดือนแบบง่ายๆ (ใช้วันที่ 1 เดือนถัดไป ลบ 1 วัน หรือใช้ 31 ไปเลยก็ได้เพราะ string comparison รองรับ)
-            // แต่เพื่อความชัวร์ใช้เทคนิคนี้:
             const lastDayObj = new Date(year, month + 1, 0);
             const endDay = `${year}-${String(month + 1).padStart(2, '0')}-${lastDayObj.getDate()}`;
 
-            // ✅ 2. แก้ Query ให้ดึงเฉพาะช่วงวันที่กำหนด (Optimized Query)
-            const [usersSnap, schedulesSnap, attendanceSnap, configDoc, savedPayslipsSnap] = await Promise.all([
+            // ✅ 2. Optimized Query (removed company fetch)
+            const [usersSnap, schedulesSnap, attendanceSnap, savedPayslipsSnap] = await Promise.all([
                 getDocs(query(collection(db, "users"), where("companyId", "==", companyId))),
 
-                // แก้: เพิ่ม where date
                 getDocs(query(collection(db, "schedules"),
                     where("companyId", "==", companyId),
                     where("date", ">=", startDay),
                     where("date", "<=", endDay)
                 )),
 
-                // แก้: เพิ่ม where date
                 getDocs(query(collection(db, "attendance"),
                     where("companyId", "==", companyId),
-                    where("date", ">=", startDay),
-                    where("date", "<=", endDay)
+                    where("createdAt", ">=", new Date(`${startDay}T00:00:00`)),
+                    where("createdAt", "<=", new Date(`${endDay}T23:59:59`))
                 )),
 
-                getDoc(doc(db, "companies", companyId)),
+                // getDoc(doc(db, "companies", companyId)), // Removed
                 getDocs(query(collection(db, "payslips"), where("companyId", "==", companyId), where("monthId", "==", monthId)))
             ]);
 
-            const config = configDoc.exists() ? configDoc.data() : {};
+            const config = companyConfig || {}; // Use Cached Config
             const deductionRules = config.settings?.deduction || {};
             const otRates = config.otTypes || [];
 

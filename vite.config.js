@@ -47,7 +47,7 @@ export default defineConfig({
       },
 
       devOptions: {
-        enabled: false, // ❌ ปิด PWA ตอน Dev จะได้ไม่ Cache
+        enabled: true, // ✅ เปิด PWA ตอน Dev เพื่อแก้ปัญหา 404 Manifest
         type: 'module',
       },
     })

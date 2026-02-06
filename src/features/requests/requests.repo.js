@@ -1,4 +1,4 @@
-import { collection, addDoc, query, where, getDocs, doc, getDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, doc, getDoc, updateDoc, deleteDoc, serverTimestamp, Timestamp, orderBy, limit } from 'firebase/firestore';
 import { db } from '@/shared/lib/firebase';
 
 /**
@@ -54,20 +54,17 @@ export const requestsRepo = {
      */
     async getRequestsByCompany(companyId, status = 'all') {
         try {
-            let q;
+            let constraints = [
+                where('companyId', '==', companyId),
+                orderBy('createdAt', 'desc'), // Show newest first
+                limit(100) // ✅ Optimization: Limit to last 100 requests to save costs
+            ];
 
-            if (status === 'all') {
-                q = query(
-                    collection(db, 'requests'),
-                    where('companyId', '==', companyId)
-                );
-            } else {
-                q = query(
-                    collection(db, 'requests'),
-                    where('companyId', '==', companyId),
-                    where('status', '==', status)
-                );
+            if (status !== 'all') {
+                constraints.push(where('status', '==', status));
             }
+
+            const q = query(collection(db, 'requests'), ...constraints);
 
             const snap = await getDocs(q);
             return snap.docs.map(doc => ({

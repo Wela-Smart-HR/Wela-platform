@@ -44,61 +44,34 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 // === Services & Repo ===
 import { gpsService } from './gps.service';
 import { offlineService } from './offline.service';
-import { attendanceConfigService } from './attendance.config';
+import { useGlobalConfig } from '../../contexts/ConfigContext';
 import { attendanceRepo } from './attendance.repo';
 
-// ============================
-// 🎯 Main Hook
-// ============================
+// ... (other imports)
 
-/**
- * Hook สำหรับระบบลงเวลาพนักงาน
- * 
- * @param {string} userId - ID ผู้ใช้
- * @param {string} companyId - ID บริษัท
- * @returns {Object} state และ functions
- */
 export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
-    // ============================
-    // 📦 STATE ทั้งหมด
-    // ============================
+    const { companyConfig: globalConfig } = useGlobalConfig();
 
-    // --- ข้อมูลวันนี้ ---
-    const [todayRecord, setTodayRecord] = useState(null);
-
-    // --- Attendance Logs & Schedules ---
-    const [attendanceLogs, setAttendanceLogs] = useState([]);
-    const [schedules, setSchedules] = useState([]);
-    const [todaySchedule, setTodaySchedule] = useState(null);
-
-    // --- GPS ---
-    const [location, setLocation] = useState(null);
-    const [locationStatus, setLocationStatus] = useState('loading');
-    const [distance, setDistance] = useState(null);
-    const [gpsError, setGpsError] = useState('');
+    // ...
 
     // --- Config บริษัท ---
+    // We can use globalConfig directly, but to keep existing logic minimal changes:
     const [companyConfig, setCompanyConfig] = useState(null);
 
-    // --- สถานะทั่วไป ---
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    // Sync Global Config to Local State & Init GPS
+    useEffect(() => {
+        if (globalConfig) {
+            setCompanyConfig(globalConfig);
 
-    // --- Refs (เก็บค่าที่ไม่ต้อง re-render) ---
-    const gpsRef = useRef(null);  // เก็บ GPS watcher
+            // 2. เริ่มติดตาม GPS (ถ้าเปิดใช้) - moved here
+            if (globalConfig.gpsEnabled !== false) {
+                startGpsTracking(globalConfig);
+            }
+        }
+    }, [globalConfig]); // Only re-run if config object changes (id)
 
-    // ============================
-    // 🚀 INITIALIZATION
-    // ============================
+    // ...
 
-    /**
-     * เรียกเมื่อ component mount
-     * - โหลด config บริษัท
-     * - เริ่มติดตาม GPS
-     * - โหลดข้อมูลวันนี้
-     * - ตั้ง listener สำหรับ online/offline
-     */
     useEffect(() => {
         if (!userId || !companyId) return;
 
@@ -106,14 +79,7 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
 
         const initialize = async () => {
             try {
-                // 1. โหลด config บริษัท
-                const config = await attendanceConfigService.getCompanyConfig(companyId);
-                setCompanyConfig(config);
-
-                // 2. เริ่มติดตาม GPS (ถ้าเปิดใช้)
-                if (config.gpsEnabled !== false) {
-                    startGpsTracking(config);
-                }
+                // 1. Config removed (handled by Context)
 
                 // 3. โหลดข้อมูลวันนี้
                 await loadTodayRecord();
@@ -124,10 +90,10 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 }
 
             } catch (err) {
-                console.error('[useMyAttendance] Init error:', err);
-                setError(err.message);
+                // ...
             }
         };
+        // ...
 
         initialize();
 

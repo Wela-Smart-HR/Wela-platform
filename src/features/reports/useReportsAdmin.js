@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { db } from '@/shared/lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+import { useMonthlyStats } from './useMonthlyStats';
 
 /**
  * Hook for behavioral reports and insights (admin perspective)
@@ -31,75 +32,133 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
         };
     };
 
-    // 1. AUTO: Overview (เหมือนเดิมเป๊ะ ไม่ต้องแก้ส่วนนี้)
+    // --- NEW ZERO-COST LOGIC ---
+    // 1. AUTO: Overview (Optimized)
+    const { stats: monthlyStatsMap, loading: statsLoading } = useMonthlyStats(companyId, selectedMonth);
+
+    // ✅ Helper: Create Safe Date String (YYYY-MM-DD)
+    const toISODate = (d) => {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
     useEffect(() => {
-        if (!companyId) return;
+        if (!companyId || statsLoading) return;
+
         const fetchOverview = async () => {
             setLoading(true);
             try {
                 const { start, end, daysInMonth } = getMonthRange(selectedMonth);
-                const [attSnap, schSnap, usersSnap] = await Promise.all([
-                    getDocs(query(collection(db, "attendance"), where("companyId", "==", companyId), where("date", ">=", start), where("date", "<=", end))),
-                    getDocs(query(collection(db, "schedules"), where("companyId", "==", companyId), where("date", ">=", start), where("date", "<=", end))),
-                    getDocs(query(collection(db, "users"), where("companyId", "==", companyId)))
-                ]);
 
-                const attendances = attSnap.docs.map(d => d.data());
-                const schedules = schSnap.docs.map(d => d.data());
-                const employees = usersSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.role === 'employee');
+                // 1. Fetch Total Employees (Snapshot for Estimate Calculation)
+                // [Architect Note]: In Production should store this in Company Metadata to reduce Reads
+                const usersSnap = await getDocs(query(collection(db, "users"),
+                    where("companyId", "==", companyId),
+                    where("role", "==", "employee"),
+                    where("status", "==", "active") // Filter only active
+                ));
+                const totalActiveStaff = usersSnap.size;
+                const employees = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-                let totalWorkDays = 0, totalPresentDays = 0;
-                const dailyStats = Array.from({ length: daysInMonth }, (_, i) => {
-                    const dayStr = `${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth() + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
-                    const schForDay = schedules.filter(s => s.date === dayStr && s.type === 'work');
-                    const attForDay = attendances.filter(a => a.date === dayStr);
+                // 2. Try Zero-Cost Query First
+                const dailyQ = query(collection(db, 'companies', companyId, 'daily_attendance'),
+                    where('date', '>=', start), where('date', '<=', end));
+                const dailySnap = await getDocs(dailyQ);
 
-                    const late = attForDay.filter(a => {
-                        const sch = schForDay.find(s => s.userId === a.userId);
-                        if (!sch || !sch.startTime || !a.createdAt) return false;
-                        const shiftStart = new Date(`${dayStr}T${sch.startTime}`);
-                        const clockIn = a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-                        return (clockIn - shiftStart) / 60000 > 10;
-                    }).length;
+                let dailyStats = [];
 
-                    const present = attForDay.length;
-                    const isPast = new Date(dayStr) < new Date();
-                    const absent = isPast ? Math.max(0, schForDay.length - present) : 0;
+                if (!dailySnap.empty) {
+                    // ✅ A. MODERN PATH
+                    const dailyMap = {};
+                    dailySnap.forEach(doc => dailyMap[doc.id] = doc.data());
 
-                    totalWorkDays += schForDay.length;
-                    totalPresentDays += present;
-                    return { day: i + 1, dateFull: dayStr, onTime: Math.max(0, present - late), late, absent };
-                });
-                setGraphData(dailyStats);
+                    dailyStats = Array.from({ length: daysInMonth }, (_, i) => {
+                        const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i + 1);
+                        const dateStr = toISODate(d);
+                        const summary = dailyMap[dateStr];
 
-                const quickStats = employees.map(emp => {
-                    const myAtt = attendances.filter(a => a.userId === emp.id);
-                    const mySch = schedules.filter(s => s.userId === emp.id);
-                    let lateMins = 0, lateCount = 0, absentCount = 0, otHours = 0;
+                        // Check if it's weekend (Sunday=0, Saturday=6)
+                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
 
-                    mySch.forEach(sch => {
-                        const att = myAtt.find(a => a.date === sch.date);
-                        const isPast = new Date(sch.date) < new Date();
+                        if (summary) {
+                            const values = Object.values(summary.attendance || {});
+                            const present = values.length;
+                            const late = values.filter(v => v.status === 'late').length;
+                            const onTime = Math.max(0, present - late);
 
-                        if (att) {
-                            if (sch.startTime && att.createdAt) {
-                                const shiftStart = new Date(`${sch.date}T${sch.startTime}`);
-                                const clockIn = att.createdAt.toDate ? att.createdAt.toDate() : new Date(att.createdAt);
-                                const diff = Math.floor((clockIn - shiftStart) / 60000);
-                                if (diff > 10) { lateMins += diff; lateCount++; }
+                            // ✅ FIX: Calculate Absent
+                            let absent = 0;
+                            if (!isWeekend && d <= new Date()) {
+                                absent = Math.max(0, totalActiveStaff - present);
                             }
-                            if (sch.endTime && att.clockOut) {
-                                const shiftEnd = new Date(`${sch.date}T${sch.endTime}`);
-                                const clockOut = att.clockOut.toDate ? att.clockOut.toDate() : new Date(att.clockOut);
-                                const diffOT = (clockOut - shiftEnd) / 3600000;
-                                if (diffOT > 1) otHours += diffOT;
+
+                            return { day: i + 1, dateFull: dateStr, onTime, late, absent };
+                        } else {
+                            // No data logic
+                            let absent = 0;
+                            if (!isWeekend && d <= new Date()) {
+                                absent = totalActiveStaff; // Assume all absent if no data and workday
                             }
-                        } else if (isPast && sch.type === 'work') {
-                            absentCount++;
+                            return { day: i + 1, dateFull: dateStr, onTime: 0, late: 0, absent: absent };
                         }
                     });
+
+                } else {
+                    // ⚠️ Fallback: Legacy Query
+                    console.warn("⚠️ Fetching raw attendance (Legacy Mode)");
+
+                    const legacyQ = query(
+                        collection(db, "attendance"),
+                        where("companyId", "==", companyId),
+                        where("date", ">=", start),
+                        where("date", "<=", end)
+                    );
+                    const legacySnap = await getDocs(legacyQ);
+                    const legacyData = legacySnap.docs.map(d => d.data());
+
+                    dailyStats = Array.from({ length: daysInMonth }, (_, i) => {
+                        const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i + 1);
+                        const dateStr = toISODate(d);
+                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+
+                        // ✅ FIX: Robust Date Comparison
+                        const attForDay = legacyData.filter(a => {
+                            // Support multiple date formats
+                            if (a.date === dateStr) return true;
+                            if (a.localTimestamp && a.localTimestamp.startsWith(dateStr)) return true;
+                            if (a.createdAt && a.createdAt.toDate) {
+                                const createdDate = toISODate(a.createdAt.toDate());
+                                return createdDate === dateStr;
+                            }
+                            return false;
+                        });
+
+                        const present = attForDay.length;
+                        const late = attForDay.filter(a => a.status === 'late').length;
+                        const onTime = Math.max(0, present - late);
+
+                        // ✅ FIX: Calculate Absent Rough Estimate
+                        let absent = 0;
+                        if (!isWeekend && d <= new Date()) {
+                            absent = Math.max(0, totalActiveStaff - present);
+                        }
+
+                        return { day: i + 1, dateFull: dateStr, onTime, late, absent };
+                    });
+                }
+
+                setGraphData(dailyStats);
+
+                // 3. Process Leaderboard & Overview
+                const quickStats = employees.map(emp => {
+                    const myStats = monthlyStatsMap[emp.id] || {};
+                    const lateMins = myStats.lateMins || 0;
+                    const lateCount = myStats.lateCount || 0;
+                    const absentCount = myStats.absentCount || 0;
+                    const otHours = myStats.otHours || 0;
+
                     let simpleScore = 100 - (lateCount * 5) - (absentCount * 20);
                     if (simpleScore < 0) simpleScore = 0;
+
                     return { ...emp, lateMins, simpleScore, lateCount, otHours };
                 });
 
@@ -107,16 +166,27 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                 const totalOTHours = quickStats.reduce((acc, curr) => acc + curr.otHours, 0);
                 const topLate = [...quickStats].filter(e => e.lateMins > 0).sort((a, b) => b.lateMins - a.lateMins).slice(0, 3);
                 const topGood = [...quickStats].sort((a, b) => b.simpleScore - a.simpleScore).slice(0, 3);
-                const attRate = totalWorkDays > 0 ? (totalPresentDays / totalWorkDays) * 100 : 0;
 
-                setOverview({ attendanceRate: attRate, totalLateMins, totalOTHours, totalEmployees: employees.length, topLate, topGood });
+                // Calculated Attendance Rate
+                // Calculate total workdays in month * total employees
+                let workDaysInMonth = 0;
+                for (let i = 1; i <= daysInMonth; i++) {
+                    const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i);
+                    if (d.getDay() !== 0 && d.getDay() !== 6 && d <= new Date()) {
+                        workDaysInMonth++;
+                    }
+                }
+                const totalPossibleWorkDays = workDaysInMonth * totalActiveStaff;
+                const totalActualPresent = dailyStats.reduce((acc, curr) => acc + (curr.onTime + curr.late), 0);
+
+                const attRate = totalPossibleWorkDays > 0 ? (totalActualPresent / totalPossibleWorkDays) * 100 : 0;
+
+                setOverview({ attendanceRate: attRate, totalLateMins, totalOTHours, totalEmployees: totalActiveStaff, topLate, topGood });
                 setLoading(false);
-                setIsInsightGenerated(false);
-                setReportData([]);
             } catch (e) { console.error(e); setLoading(false); }
         };
         fetchOverview();
-    }, [companyId, selectedMonth]);
+    }, [companyId, selectedMonth, monthlyStatsMap, statsLoading]);
 
     // ===============================================
     // 2. MANUAL: Insight (🔥 ส่วนที่อัปเกรดความฉลาด)

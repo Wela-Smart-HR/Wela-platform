@@ -13,13 +13,11 @@ import MyWork from '../../pages/employee/MyWork';
  * Employee Routes Configuration
  * All routes for Employee users
  */
-export const employeeRoutes = (
-    <>
-        <Route index element={<Connect />} />
-        <Route path="time" element={<TimeAttendance />} />
-        <Route path="requests" element={<MyRequests />} />
-        <Route path="payslip" element={<Payslip />} />
-        <Route path="profile" element={<Profile />} />
-        <Route path="my-work" element={<MyWork />} />
-    </>
-);
+export const employeeRoutes = [
+    { index: true, element: <Connect /> },
+    { path: "time", element: <TimeAttendance /> },
+    { path: "requests", element: <MyRequests /> },
+    { path: "payslip", element: <Payslip /> },
+    { path: "profile", element: <Profile /> },
+    { path: "my-work", element: <MyWork /> }
+];

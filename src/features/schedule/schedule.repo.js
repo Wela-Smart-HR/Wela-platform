@@ -23,15 +23,20 @@ export const scheduleRepo = {
     },
 
     /**
-     * Get schedules by company
+     * Get schedules by company (with date range)
      * @param {string} companyId 
+     * @param {string} startDate - YYYY-MM-DD
+     * @param {string} endDate - YYYY-MM-DD
      * @returns {Promise<Array>}
      */
-    async getSchedulesByCompany(companyId) {
+    async getSchedulesByCompany(companyId, startDate, endDate) {
         try {
+            // ✅ Optimization: Enforce Date Range to avoid fetching full history
             const q = query(
                 collection(db, 'schedules'),
-                where('companyId', '==', companyId)
+                where('companyId', '==', companyId),
+                where('date', '>=', startDate),
+                where('date', '<=', endDate)
             );
 
             const snap = await getDocs(q);
@@ -46,15 +51,20 @@ export const scheduleRepo = {
     },
 
     /**
-     * Get schedule by user
+     * Get schedule by user (for specific date)
      * @param {string} userId 
+     * @param {string} date - YYYY-MM-DD
      * @returns {Promise<Object|null>}
      */
-    async getScheduleByUser(userId) {
+    async getScheduleByUser(userId, date) {
         try {
+            // ✅ Optimization: Fetch specific day only.
+            // ID format is usually: `${userId}_${date}` (based on Schedule.jsx)
+            // But we query to be safe if ID structure changes.
             const q = query(
                 collection(db, 'schedules'),
-                where('userId', '==', userId)
+                where('userId', '==', userId),
+                where('date', '==', date)
             );
 
             const snap = await getDocs(q);

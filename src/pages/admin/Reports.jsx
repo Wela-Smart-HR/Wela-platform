@@ -7,6 +7,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext';
 // ✅ Import Hook จาก Features Architecture
 import { useReportsAdmin } from '../../features/reports/useReportsAdmin';
+import { migrationService } from '../../features/migration/migration.service';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
 
 const IconMap = {
