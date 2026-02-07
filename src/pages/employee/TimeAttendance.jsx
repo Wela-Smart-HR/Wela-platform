@@ -318,6 +318,7 @@ export default function TimeAttendance() {
                                 else if (item.status === 'late') { config = { bg: 'bg-[#FFF4E5]', text: 'text-[#FF9500]', label: `LATE ${item.lateMinutes || 0}m`, bar: 'bg-[#FF9500]' }; }
                                 else if (item.status === 'absent') { config = { bg: 'bg-[#FEE2E2]', text: 'text-[#EF4444]', label: 'MISSING', bar: 'bg-[#EF4444]' }; }
                                 else if (item.status === 'off') { config = { bg: 'bg-slate-50', text: 'text-slate-400', label: 'DAY OFF', bar: 'bg-slate-300' }; }
+                                else if (item.status === 'leave') { config = { bg: 'bg-yellow-50', text: 'text-yellow-600', label: item.leaveType || 'LEAVE', bar: 'bg-yellow-500' }; }
                                 if (item.deduction > 0) { config.label = `-${item.deduction} THB`; config.text = 'text-rose-500'; config.bg = 'bg-rose-50'; }
 
                                 const itemKey = item.date.getTime();

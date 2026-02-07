@@ -70,9 +70,10 @@ export default function Requests() {
         if (action === 'approved') {
           await approveRequest(req);
           // (Optional) อาจจะไม่ต้องแจ้งเตือน Success ก็ได้ถ้าลิสต์หายไปเอง แต่ถ้าอยากใส่ก็ได้ครับ
-          // dialog.showAlert("อนุมัติเรียบร้อย", "สำเร็จ", "success");
+          dialog.showAlert("อนุมัติเรียบร้อย", "สำเร็จ", "success");
         } else {
           await rejectRequest(req);
+          dialog.showAlert("ปฏิเสธคำขอเรียบร้อย", "สำเร็จ", "success");
         }
       } catch (error) {
         // ✅ 4. เปลี่ยน alert เป็น dialog.showAlert
