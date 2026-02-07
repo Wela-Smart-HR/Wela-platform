@@ -52,7 +52,24 @@ import { attendanceRepo } from './attendance.repo';
 export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
     const { companyConfig: globalConfig } = useGlobalConfig();
 
-    // ...
+
+    // --- State ---
+    const [todayRecord, setTodayRecord] = useState(null);
+    const [attendanceLogs, setAttendanceLogs] = useState([]);
+    const [schedules, setSchedules] = useState([]);
+    const [todaySchedule, setTodaySchedule] = useState(null);
+
+    // --- GPS & Location State ---
+    const [location, setLocation] = useState(null);
+    const [locationStatus, setLocationStatus] = useState('loading'); // 'loading' | 'success' | 'error' | 'out-of-range'
+    const [distance, setDistance] = useState(0);
+    const [gpsError, setGpsError] = useState('');
+    const gpsRef = useRef(null);
+
+    // --- System State ---
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(null);
+    const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
     // --- Config บริษัท ---
     // We can use globalConfig directly, but to keep existing logic minimal changes:

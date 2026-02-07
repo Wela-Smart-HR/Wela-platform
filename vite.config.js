@@ -54,7 +54,11 @@ export default defineConfig({
   ],
   // ✅ เพิ่มก้อนนี้เข้าไปครับ (บอกให้ยอมรับทุกชื่อเว็บ)
   server: {
-    allowedHosts: true
+    allowedHosts: true, // หรือใช้ ['.ngrok-free.app']
+    host: true, // เปิดให้ฟังทุก IP
+    hmr: {
+      clientPort: 443, // ✅ บังคับให้ HMR วิ่งผ่าน HTTPS (ง้อ ngrok)
+    }
   },
   // ✅ Chunk Splitting (แบ่งไฟล์ให้โหลดเร็วขึ้น)
   build: {

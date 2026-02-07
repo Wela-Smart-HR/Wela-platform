@@ -23,7 +23,16 @@ export function ConfigProvider({ children, companyId }) {
             // This replaces multiple fetches in Dashboard, Payroll, Schedule, etc.
             unsubscribe = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
-                    setCompanyConfig({ id: docSnap.id, ...docSnap.data() });
+                    setCompanyConfig({
+                        id: docSnap.id,
+                        ...docSnap.data(),
+                        // ✅ Default Features (ถ้าไม่มีใน DB ให้ถือว่าเปิดหมด)
+                        features: docSnap.data().features || {
+                            payroll: true,
+                            attendance: true,
+                            myWork: { overview: false, calendar: true }
+                        }
+                    });
                 } else {
                     setCompanyConfig(null);
                 }

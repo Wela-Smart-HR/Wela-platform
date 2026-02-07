@@ -318,6 +318,7 @@ export default function TimeAttendance() {
                                 else if (item.status === 'late') { config = { bg: 'bg-[#FFF4E5]', text: 'text-[#FF9500]', label: `LATE ${item.lateMinutes || 0}m`, bar: 'bg-[#FF9500]' }; }
                                 else if (item.status === 'absent') { config = { bg: 'bg-[#FEE2E2]', text: 'text-[#EF4444]', label: 'MISSING', bar: 'bg-[#EF4444]' }; }
                                 else if (item.status === 'off') { config = { bg: 'bg-slate-50', text: 'text-slate-400', label: 'DAY OFF', bar: 'bg-slate-300' }; }
+                                else if (item.status === 'leave') { config = { bg: 'bg-yellow-50', text: 'text-yellow-600', label: item.leaveType || 'LEAVE', bar: 'bg-yellow-500' }; }
                                 if (item.deduction > 0) { config.label = `-${item.deduction} THB`; config.text = 'text-rose-500'; config.bg = 'bg-rose-50'; }
 
                                 const itemKey = item.date.getTime();
@@ -362,7 +363,7 @@ export default function TimeAttendance() {
 
             {/* Retro Modal */}
             {isRetroModalOpen && createPortal(
-                <div className="fixed inset-0 z-[9999] flex items-end justify-center sm:items-center font-sans">
+                <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center font-sans">
                     <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={() => setIsRetroModalOpen(false)}></div>
                     <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col max-h-[90vh] animate-slide-up overflow-hidden">
                         <div className="px-6 pt-6 pb-4 flex justify-between items-center shrink-0">
@@ -383,7 +384,7 @@ export default function TimeAttendance() {
             )}
 
             {showGreetingPopup && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center px-6 pointer-events-none">
+                <div className="fixed inset-0 z-[70] flex items-center justify-center px-6 pointer-events-none">
                     <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"></div>
                     <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl p-6 animate-zoom-in pointer-events-auto flex flex-col items-center text-center relative z-10">
                         <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${greetingMessage.isLate ? 'bg-orange-50 text-orange-500' : 'bg-[#E8F8ED] text-[#34C759]'}`}>{greetingMessage.isLate ? <WarningCircle weight="fill" size={40} /> : <CheckCircle weight="fill" size={40} />}</div>

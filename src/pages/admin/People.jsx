@@ -8,6 +8,7 @@ import {
 // ✅ Import Hook จาก Features Architecture
 import { usePeopleAdmin } from '../../features/people/usePeopleAdmin';
 import { useDialog } from '../../contexts/DialogContext';
+import { useSettings } from '../../features/settings/useSettings';
 
 // Components
 import EmployeeModal from '../../components/admin/EmployeeModal';
@@ -16,9 +17,13 @@ import WarningModal from '../../components/admin/WarningModal';
 export default function People() {
   const { currentUser } = useAuth();
   const dialog = useDialog(); // ✅ 2. เรียกใช้ Dialog
+  const { settings } = useSettings(currentUser?.companyId);
 
   // ✅ เรียกใช้ Logic จาก Features Hook
   const { employees, loading, createEmployee, updateEmployee, deleteEmployee, hasMore, loadMore } = usePeopleAdmin(currentUser?.companyId, currentUser);
+
+  // ... existing code ...
+  // ...
 
   // --- UI STATE ---
   // ❌ ลบ showSuccess ออก เพราะเราจะใช้ Global Dialog แทนครับ
@@ -30,6 +35,15 @@ export default function People() {
 
   // --- HANDLERS (สะอาดขึ้นมาก) ---
   const handleSaveEmployee = async (formData) => {
+    // ✅ Check Day Offs (Confirmation)
+    if (formData.dayOffs.length === 0) {
+      const confirmed = await dialog.showConfirm(
+        "พนักงานท่านนี้ทำงานทุกวัน (ไม่มีวันหยุด) ใช่หรือไม่?",
+        "ยืนยันไม่มีวันหยุด"
+      );
+      if (!confirmed) return;
+    }
+
     setIsSaving(true);
     try {
       if (selectedEmployee) {
@@ -50,8 +64,17 @@ export default function People() {
       await dialog.showAlert("ข้อมูลพนักงานถูกอัปเดตลงในระบบแล้ว", "บันทึกเรียบร้อย!", "success");
 
     } catch (error) {
-      // ✅ 4. เปลี่ยน alert เป็น dialog
-      dialog.showAlert("เกิดข้อ ผิดพลาด: " + error.message, "Error", "error");
+      // ✅ 4. เปลี่ยน alert เป็น dialog & แปล Error
+      let message = error.message;
+
+      // แปล Firebase Error Codes
+      if (message.includes('auth/email-already-in-use')) message = "อีเมลนี้มีผู้ใช้งานแล้วในระบบ";
+      else if (message.includes('auth/invalid-email')) message = "รูปแบบอีเมลไม่ถูกต้อง";
+      else if (message.includes('auth/weak-password')) message = "รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร";
+      else if (message.includes('auth/missing-password')) message = "กรุณากำหนดรหัสผ่านสำหรับพนักงานใหม่";
+      else message = message.replace('Error: ', '');
+
+      dialog.showAlert(message, "เกิดข้อผิดพลาด", "error");
     }
     setIsSaving(false);
   };
@@ -161,7 +184,7 @@ export default function People() {
 
       {/* --- MODALS --- */}
       {
-        EmployeeModal && (
+        isModalOpen && (
           <EmployeeModal
             isOpen={isModalOpen}
             onClose={() => setIsModalOpen(false)}
@@ -169,6 +192,7 @@ export default function People() {
             onSave={handleSaveEmployee}
             onDelete={handleDeleteEmployee}
             isLoading={isSaving}
+            shifts={settings?.shifts || []}
           />
         )
       }

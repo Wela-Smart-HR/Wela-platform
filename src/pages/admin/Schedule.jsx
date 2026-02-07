@@ -11,7 +11,7 @@ import {
     Clock, PencilSimple, Copy, CaretRight, CaretLeft,
     CalendarBlank, Check, WarningCircle,
     Briefcase, Moon, Coins, X, MagicWand, Gift, Storefront,
-    AirplaneTilt, ArrowDown
+    AirplaneTilt, ArrowDown, WarningOctagon
 } from '@phosphor-icons/react';
 
 // --- HELPER: Timezone Fix ---
@@ -338,11 +338,26 @@ export default function Schedule() {
                             )}
                         </div>
 
+                        {/* ZERO STAFF ALERT */}
+                        {workingStaff.length === 0 && (
+                            <div className="mb-6 bg-rose-50 border border-rose-100 p-4 rounded-2xl flex items-start gap-3 animate-pulse">
+                                <div className="w-10 h-10 bg-rose-100 rounded-full flex items-center justify-center text-rose-500 shrink-0">
+                                    <WarningOctagon weight="fill" size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-rose-700">ไม่มีพนักงานเข้ากะวันนี้!</h3>
+                                    <p className="text-xs text-rose-600 mt-1">
+                                        โปรดตรวจสอบตารางงาน อาจไม่มีใครมาทำงานเลย หรือทุกคนลางาน/หยุดพร้อมกัน
+                                    </p>
+                                    <button onClick={() => setIsManageTodayOpen(true)} className="mt-2 text-[10px] font-bold bg-white text-rose-600 px-3 py-1.5 rounded-lg border border-rose-200 shadow-sm hover:bg-rose-50">
+                                        จัดการกะงานด่วน
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         {/* WORKING STAFF */}
                         <div className="space-y-3 mb-6">
-                            {workingStaff.length === 0 && leaveStaff.length === 0 && offStaff.length === 0 && (
-                                <div className="text-center py-10 text-slate-400 text-xs">ยังไม่มีตารางงานวันนี้</div>
-                            )}
 
                             {workingStaff.map((staff) => (
                                 <div key={staff.id} onClick={() => openEditModal(staff)} className="modern-card p-3 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition rounded-xl bg-white border border-slate-100 shadow-sm relative overflow-hidden group">

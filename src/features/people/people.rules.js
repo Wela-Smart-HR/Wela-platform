@@ -8,11 +8,11 @@ export function validateEmployeeData(employeeData, isUpdate = false) {
     const { name, email, position, salary, salaryType, type } = employeeData;
 
     if (!name || name.trim().length < 2) {
-        return { valid: false, error: 'Name must be at least 2 characters' };
+        return { valid: false, error: 'กรุณาระบุชื่อ-นามสกุล (อย่างน้อย 2 ตัวอักษร)' };
     }
 
     if (!email || !isValidEmail(email)) {
-        return { valid: false, error: 'Invalid email address' };
+        return { valid: false, error: 'รูปแบบอีเมลไม่ถูกต้อง' };
     }
 
     // Position is optional in legacy logic
@@ -23,14 +23,14 @@ export function validateEmployeeData(employeeData, isUpdate = false) {
     // Allow salary to be 0 or positive (not negative)
     const salaryNum = Number(salary);
     if (isNaN(salaryNum) || salaryNum < 0) {
-        return { valid: false, error: 'Salary must be a positive number' };
+        return { valid: false, error: 'เงินเดือน/ค่าจ้างต้องเป็นตัวเลขจำนวนบวก' };
     }
 
     // รองรับทั้ง salaryType (English) และ type (Thai) จาก Modal
     const effectiveType = salaryType || type || 'monthly';
     const validTypes = ['monthly', 'daily', 'รายเดือน', 'รายวัน'];
     if (!validTypes.includes(effectiveType)) {
-        return { valid: false, error: 'Salary type must be "monthly" or "daily"' };
+        return { valid: false, error: 'ประเภทการจ้างต้องเป็น รายเดือน หรือ รายวัน เท่านั้น' };
     }
 
     return { valid: true };
