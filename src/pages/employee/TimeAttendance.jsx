@@ -362,7 +362,7 @@ export default function TimeAttendance() {
 
             {/* Retro Modal */}
             {isRetroModalOpen && createPortal(
-                <div className="fixed inset-0 z-[9999] flex items-end justify-center sm:items-center font-sans">
+                <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center font-sans">
                     <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={() => setIsRetroModalOpen(false)}></div>
                     <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col max-h-[90vh] animate-slide-up overflow-hidden">
                         <div className="px-6 pt-6 pb-4 flex justify-between items-center shrink-0">
@@ -383,7 +383,7 @@ export default function TimeAttendance() {
             )}
 
             {showGreetingPopup && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center px-6 pointer-events-none">
+                <div className="fixed inset-0 z-[70] flex items-center justify-center px-6 pointer-events-none">
                     <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"></div>
                     <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl p-6 animate-zoom-in pointer-events-auto flex flex-col items-center text-center relative z-10">
                         <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${greetingMessage.isLate ? 'bg-orange-50 text-orange-500' : 'bg-[#E8F8ED] text-[#34C759]'}`}>{greetingMessage.isLate ? <WarningCircle weight="fill" size={40} /> : <CheckCircle weight="fill" size={40} />}</div>

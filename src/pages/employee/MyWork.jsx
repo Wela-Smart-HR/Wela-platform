@@ -193,26 +193,32 @@ export default function MyWork() {
     };
 
     // HANDLERS
-    const handleSubmitLeave = async () => {
+    const handleLeaveRequest = async () => {
         if (!leaveForm.reason) return dialog.showAlert("กรุณาระบุเหตุผลการลา", "ข้อมูลไม่ครบ", "warning");
 
         setLoading(true);
         try {
             await addDoc(collection(db, "requests"), {
                 companyId: currentUser.companyId, userId: currentUser.uid, userName: currentUser.displayName || currentUser.email,
-                type: 'leave', leaveType: leaveForm.type, reason: leaveForm.reason,
-                date: formatDateForInput(selectedDate),
-                status: 'pending', createdAt: serverTimestamp()
+                type: 'leave',
+                status: 'pending', createdAt: serverTimestamp(),
+                data: { // ✅ Fix: Nest data to match requests.repo.js
+                    leaveType: leaveForm.type,
+                    reason: leaveForm.reason,
+                    startDate: formatDateForInput(selectedDate),
+                    endDate: formatDateForInput(selectedDate) // Assuming single day for now
+                }
             });
             await dialog.showAlert("ส่งใบลาเรียบร้อยแล้ว! รอการอนุมัติจาก HR", "สำเร็จ", "success");
             setShowLeaveModal(false); setLeaveForm({ type: 'Sick Leave', reason: '' });
         } catch (error) {
+            console.error(error);
             dialog.showAlert("เกิดข้อผิดพลาด: " + error.message, "Error", "error");
         }
         setLoading(false);
     };
 
-    const handleSubmitAdjust = async () => {
+    const handleAdjustRequest = async () => {
         if (!adjustForm.timeIn || !adjustForm.timeOut || !adjustForm.reason) {
             return dialog.showAlert("กรุณากรอกเวลาและเหตุผลให้ครบถ้วน", "ข้อมูลไม่ครบ", "warning");
         }
@@ -221,14 +227,24 @@ export default function MyWork() {
         try {
             await addDoc(collection(db, "requests"), {
                 companyId: currentUser.companyId, userId: currentUser.uid, userName: currentUser.displayName || currentUser.email,
-                type: 'adjustment',
-                targetDate: adjustForm.date || formatDateForInput(selectedDate),
-                timeIn: adjustForm.timeIn, timeOut: adjustForm.timeOut, reason: adjustForm.reason,
-                status: 'pending', createdAt: serverTimestamp()
+                type: 'adjustment', // Note: requests.repo.js checks for 'retro' or 'unscheduled_alert', need to align this.
+                // Actually, repo checks 'retro' OR 'unscheduled_alert'. Let's use 'retro' for clarity or match repo.
+                // Update: let's use 'retro' to be safe with repo logic.
+                // Wait, repo says: if (request.type === 'retro' || request.type === 'unscheduled_alert')
+                // So I should use 'retro' here.
+                type: 'retro',
+                status: 'pending', createdAt: serverTimestamp(),
+                data: { // ✅ Fix: Nest data
+                    date: adjustForm.date || formatDateForInput(selectedDate),
+                    timeIn: adjustForm.timeIn,
+                    timeOut: adjustForm.timeOut,
+                    reason: adjustForm.reason
+                }
             });
             await dialog.showAlert("ส่งคำขอแก้ไขเวลาแล้ว! รอการอนุมัติจาก HR", "สำเร็จ", "success");
             setShowAdjustModal(false); setAdjustForm({ timeIn: '', timeOut: '', reason: '' });
         } catch (error) {
+            console.error(error);
             dialog.showAlert("เกิดข้อผิดพลาดในการส่งคำขอ", "Error", "error");
         }
         setLoading(false);
@@ -409,37 +425,111 @@ export default function MyWork() {
                 </div>
             )}
 
-            {/* MODALS */}
+            {/* MODAL: LEAVE REQUEST */}
             {showLeaveModal && createPortal(
-                <div className="fixed inset-0 z-[99] flex items-end justify-center sm:items-center">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowLeaveModal(false)}></div>
-                    <div className="bg-white w-full max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 relative z-10 animate-slide-up">
-                        <div className="flex justify-between items-center mb-6"><h3 className="text-lg font-bold flex items-center gap-2 text-slate-800"><AirplaneTilt className="text-blue-500" /> Request Leave</h3><button onClick={() => setShowLeaveModal(false)}><X weight="bold" className="text-slate-400" /></button></div>
-                        <div className="text-xs text-slate-500 mb-4 font-bold">
-                            Date: {selectedDate instanceof Date && !isNaN(selectedDate) ? selectedDate.toLocaleDateString('th-TH') : 'ไม่ระบุ'}
+                <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setShowLeaveModal(false)} />
+                    <div className="relative bg-white w-full max-w-sm rounded-[24px] p-6 shadow-2xl animate-slide-up sm:animate-zoom-in">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <AirplaneTilt className="text-orange-500" weight="duotone" size={24} />
+                                Request Leave
+                            </h3>
+                            <button onClick={() => setShowLeaveModal(false)} className="w-8 h-8 rounded-full bg-slate-100/80 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors">
+                                <X weight="bold" />
+                            </button>
                         </div>
+                        {/* ... form content ... */}
                         <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-2">{['Sick Leave', 'Vacation', 'Business', 'Other'].map(t => (<button key={t} onClick={() => setLeaveForm({ ...leaveForm, type: t })} className={`p-2 rounded-xl text-xs font-bold border ${leaveForm.type === t ? 'bg-blue-600 text-white border-blue-600' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>{t}</button>))}</div>
-                            <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm" placeholder="Reason..." value={leaveForm.reason} onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })}></textarea>
-                            <button onClick={handleSubmitLeave} disabled={loading} className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold disabled:opacity-50">Submit Request</button>
+                            <div>
+                                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Leave Type</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {['Sick Leave', 'Business Leave', 'Vacation', 'Other'].map(type => (
+                                        <button key={type} onClick={() => setLeaveForm({ ...leaveForm, type })}
+                                            className={`py-2.5 px-3 rounded-xl text-xs font-bold border transition-all ${leaveForm.type === type ? 'bg-orange-50 border-orange-200 text-orange-600 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                                            {type}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Reason</label>
+                                <textarea
+                                    value={leaveForm.reason}
+                                    onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all resize-none h-24"
+                                    placeholder="Why are you requesting leave?"
+                                />
+                            </div>
+                            <button
+                                onClick={handleLeaveRequest}
+                                disabled={loading}
+                                className="w-full bg-orange-500 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-orange-500/30 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
+                            >
+                                {loading ? <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span> : 'Submit Request'}
+                            </button>
                         </div>
                     </div>
-                </div>, document.body
+                </div>,
+                document.body
             )}
 
+            {/* MODAL: ADJUSTMENT */}
             {showAdjustModal && createPortal(
-                <div className="fixed inset-0 z-[99] flex items-end justify-center sm:items-center">
-                    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setShowAdjustModal(false)}></div>
-                    <div className="bg-white w-full max-w-sm rounded-t-[32px] sm:rounded-[32px] p-6 relative z-10 animate-slide-up">
-                        <div className="flex justify-between items-center mb-6"><h3 className="text-lg font-bold flex items-center gap-2 text-rose-500"><Timer weight="fill" /> Missed Punch?</h3><button onClick={() => setShowAdjustModal(false)}><X weight="bold" className="text-slate-400" /></button></div>
-                        <p className="text-xs text-slate-500 mb-4 bg-rose-50 p-3 rounded-lg border border-rose-100 leading-relaxed">
-                            คุณไม่ได้ลงเวลาในวันที่ <span className="font-bold text-rose-600">{selectedDate instanceof Date && !isNaN(selectedDate) ? selectedDate.toLocaleDateString('th-TH') : 'ไม่ระบุ'}</span> ระบบนับว่าขาดงาน
-                        </p>
-                        <div className="flex gap-3 mb-3"><div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">In</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm" value={adjustForm.timeIn} onChange={e => setAdjustForm({ ...adjustForm, timeIn: e.target.value })} /></div><div className="flex-1"><label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Out</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 font-bold text-sm" value={adjustForm.timeOut} onChange={e => setAdjustForm({ ...adjustForm, timeOut: e.target.value })} /></div></div>
-                        <textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm mb-4" placeholder="Reason..." value={adjustForm.reason} onChange={(e) => setAdjustForm({ ...adjustForm, reason: e.target.value })}></textarea>
-                        <button onClick={handleSubmitAdjust} className="w-full bg-rose-500 text-white py-3 rounded-xl font-bold">Send to HR</button>
+                <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setShowAdjustModal(false)} />
+                    <div className="relative bg-white w-full max-w-sm rounded-[24px] p-6 shadow-2xl animate-slide-up sm:animate-zoom-in">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                                <Timer className="text-blue-500" weight="duotone" size={24} />
+                                Request Adjustment
+                            </h3>
+                            <button onClick={() => setShowAdjustModal(false)} className="w-8 h-8 rounded-full bg-slate-100/80 hover:bg-slate-200 flex items-center justify-center text-slate-500 transition-colors">
+                                <X weight="bold" />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Time In</label>
+                                    <input type="time" value={adjustForm.timeIn} onChange={e => setAdjustForm({ ...adjustForm, timeIn: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-sm font-bold text-center focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none" />
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Time Out</label>
+                                    <input type="time" value={adjustForm.timeOut} onChange={e => setAdjustForm({ ...adjustForm, timeOut: e.target.value })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-3 text-sm font-bold text-center focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none" />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Date</label>
+                                <div className="w-full bg-slate-100/50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold text-slate-600 flex items-center gap-2">
+                                    <CalendarBlank weight="duotone" className="text-slate-400" />
+                                    {selectedDate.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">Reason</label>
+                                <textarea
+                                    value={adjustForm.reason}
+                                    onChange={(e) => setAdjustForm({ ...adjustForm, reason: e.target.value })}
+                                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all resize-none h-24"
+                                    placeholder="Why are you adjusting?"
+                                />
+                            </div>
+
+                            <button
+                                onClick={handleAdjustRequest}
+                                disabled={loading}
+                                className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl shadow-lg shadow-blue-600/30 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
+                            >
+                                {loading ? <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span> : 'Send Request'}
+                            </button>
+                        </div>
                     </div>
-                </div>, document.body
+                </div>,
+                document.body
             )}
         </div>
     );

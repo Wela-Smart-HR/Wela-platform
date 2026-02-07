@@ -1,180 +1,197 @@
 import { useMemo } from 'react';
 
 export const useSalaryCalculator = (records, schedules, config, currentMonth, userType = 'daily') => {
-  
-  const result = useMemo(() => {
-    let stats = {
-      totalWorkDays: 0, actualWorkDays: 0,
-      lateCount: 0, absentCount: 0, leaveCount: 0, onTimeCount: 0,
-      totalLateMinutes: 0, totalDeduction: 0,
-      estimatedIncome: 0, monthlyGoal: 0,
-      incentive: 0, otPay: 0
-    };
 
-    let graphData = [];
-    let dailyBreakdown = [];
-    let currentAccumulatedIncome = 0;
+    const result = useMemo(() => {
+        let stats = {
+            totalWorkDays: 0, actualWorkDays: 0,
+            lateCount: 0, absentCount: 0, leaveCount: 0, onTimeCount: 0,
+            totalLateMinutes: 0, totalDeduction: 0,
+            estimatedIncome: 0, monthlyGoal: 0,
+            incentive: 0, otPay: 0
+        };
 
-    const isMonthly = ['monthly', 'รายเดือน', 'salary', 'fulltime'].includes(String(userType || '').toLowerCase()); 
-    const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
-    const today = new Date(); 
+        let graphData = [];
+        let dailyBreakdown = [];
+        let currentAccumulatedIncome = 0;
 
-    // 1. คำนวณ Goal
-    if (isMonthly) {
-        stats.monthlyGoal = config.baseSalary || (config.dailyWage * 30);
-    } else {
-        stats.monthlyGoal = config.dailyWage * 26;
-    }
+        const isMonthly = ['monthly', 'รายเดือน', 'salary', 'fulltime'].includes(String(userType || '').toLowerCase());
+        const daysInMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 0).getDate();
+        const today = new Date();
 
-    // 2. วนลูปรายวัน
-    for (let day = 1; day <= daysInMonth; day++) {
-        const dateObj = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
-        dateObj.setHours(0,0,0,0);
-        
-        const year = dateObj.getFullYear();
-        const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-        const d = String(dateObj.getDate()).padStart(2, '0');
-        const dateKey = `${year}-${month}-${d}`;
-
-        const clockIn = records.find(r => {
-            const rd = r.createdAt.toDate();
-            return rd.getDate() === day && rd.getMonth() === currentMonth.getMonth();
-        });
-        const schedule = schedules.find(s => s.date === dateKey);
-
-        let status = 'off';
-        let dailyIncome = 0;
-        let deduction = 0;
-        let lateMinutes = 0; // ✅ ตัวแปรเก็บนาทีสาย
-        let hasRecord = !!clockIn;
-
-        const dayOfWeek = dateObj.getDay(); 
-        let isWorkDay = (schedule && schedule.type === 'work') ? true : (dayOfWeek !== 0 && dayOfWeek !== 6);
-        if (schedule && (schedule.type === 'off' || schedule.type === 'holiday')) isWorkDay = false;
-
-        // --- Logic กำหนด Status ---
-        if (isWorkDay) {
-            if (clockIn) status = clockIn.status || 'on-time'; // ยึด Status จากตอนตอกบัตรเป็นหลัก
-            else if (dateObj < new Date().setHours(0,0,0,0)) status = 'absent';
-            else if (dateObj.getTime() === new Date().setHours(0,0,0,0)) status = 'today';
-            else status = 'upcoming';
+        // 1. คำนวณ Goal
+        if (isMonthly) {
+            stats.monthlyGoal = config.baseSalary || (config.dailyWage * 30);
         } else {
-            if (clockIn) status = 'ot';
+            stats.monthlyGoal = config.dailyWage * 26;
         }
 
-        // --- Logic คำนวณเงิน ---
-        const isPastOrToday = dateObj <= today;
-        const hasActivity = hasRecord || status === 'late' || status === 'absent';
+        // 2. วนลูปรายวัน
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateObj = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
+            dateObj.setHours(0, 0, 0, 0);
 
-        if ((isPastOrToday || hasActivity) && status !== 'upcoming') {
-            
-            // 1. ฐานเงินเดือน
-            let wage = config.dailyWage || (config.baseSalary ? Math.round(config.baseSalary / 30) : 0);
-            
-            if (isMonthly) {
-                dailyIncome = wage; 
-                if (status === 'absent') {
-                     // dailyIncome = 0; // (เปิดบรรทัดนี้ถ้าต้องการหักเงินวันที่ขาดสำหรับรายเดือน)
-                     stats.absentCount++;
+            const year = dateObj.getFullYear();
+            const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+            const d = String(dateObj.getDate()).padStart(2, '0');
+            const dateKey = `${year}-${month}-${d}`;
+
+            // ✅ Fix: Explicitly find Clock In and Clock Out records
+            const clockInRecord = records.find(r => {
+                const rd = r.createdAt.toDate();
+                return rd.getDate() === day && rd.getMonth() === currentMonth.getMonth() && r.type === 'clock-in';
+            });
+
+            const clockOutRecord = records.find(r => {
+                const rd = r.createdAt.toDate();
+                return rd.getDate() === day && rd.getMonth() === currentMonth.getMonth() && r.type === 'clock-out';
+            });
+
+            const schedule = schedules.find(s => s.date === dateKey);
+
+            // Fallback for calculating status if only have one record or legacy data
+            const anyRecord = clockInRecord || clockOutRecord || records.find(r => r.createdAt.toDate().getDate() === day && r.createdAt.toDate().getMonth() === currentMonth.getMonth());
+
+            let status = 'off';
+            let dailyIncome = 0;
+            let deduction = 0;
+            let lateMinutes = 0;
+            let hasRecord = !!anyRecord;
+
+            // Use clockInRecord for status determination if available, otherwise fallback
+            const mainRecord = clockInRecord || anyRecord;
+
+            const dayOfWeek = dateObj.getDay();
+            let isWorkDay = (schedule && schedule.type === 'work') ? true : (dayOfWeek !== 0 && dayOfWeek !== 6);
+            if (schedule && (schedule.type === 'off' || schedule.type === 'holiday')) isWorkDay = false;
+
+            // --- Logic กำหนด Status ---
+            if (schedule && schedule.type === 'leave') {
+                // 🟢 CASE: วันลา (Leave)
+                status = 'leave';
+                stats.leaveCount++;
+            } else if (isWorkDay) {
+                // 🟡 CASE: วันทำงานปกติ
+                if (mainRecord) {
+                    status = mainRecord.status || 'on-time'; // ยึด Status จาก Record
                 }
+                else if (dateObj < new Date().setHours(0, 0, 0, 0)) status = 'absent';
+                else if (dateObj.getTime() === new Date().setHours(0, 0, 0, 0)) status = 'today';
+                else status = 'upcoming';
             } else {
-                if (clockIn) dailyIncome = wage;
-                if (status === 'absent') stats.absentCount++;
+                // 🔵 CASE: วันหยุด / OT
+                if (mainRecord) status = 'ot';
             }
 
-            // 2. Incentive & OT
-            if (schedule) {
-                if (schedule.incentive) {
-                    const inc = Number(schedule.incentive);
-                    dailyIncome += inc;
-                    stats.incentive += inc;
+            // --- Logic คำนวณเงิน ---
+            const isPastOrToday = dateObj <= today;
+            const hasActivity = hasRecord || status === 'late' || status === 'absent';
+
+            if ((isPastOrToday || hasActivity) && status !== 'upcoming') {
+
+                // 1. ฐานเงินเดือน
+                let wage = config.dailyWage || (config.baseSalary ? Math.round(config.baseSalary / 30) : 0);
+
+                if (isMonthly) {
+                    dailyIncome = wage;
+                    if (status === 'absent') {
+                        stats.absentCount++;
+                    }
+                } else {
+                    if (mainRecord) dailyIncome = wage;
+                    if (status === 'absent') stats.absentCount++;
                 }
-                if (schedule.otHours > 0) {
-                    const hourlyRate = wage / 8; 
-                    let multiplier = schedule.otType === 'ot_1_5' ? 1.5 : schedule.otType === 'ot_2_0' ? 2.0 : 3.0;
-                    if (!schedule.otType) multiplier = 1.0;
 
-                    const otAmt = Math.round(hourlyRate * schedule.otHours * multiplier);
-                    dailyIncome += otAmt;
-                    stats.otPay += otAmt;
-                }
-            }
-            
-            // 3. 🚨 คำนวณหักมาสาย (เพิ่มใหม่ตรงนี้)
-            if (hasRecord && isWorkDay && schedule && schedule.startTime) {
-                const actualTime = clockIn.createdAt.toDate();
-                
-                // สร้างเวลาเข้างานมาตรฐานจาก Schedule (เช่น 08:30)
-                const [schedH, schedM] = schedule.startTime.split(':').map(Number);
-                const standardTime = new Date(actualTime);
-                standardTime.setHours(schedH, schedM, 0, 0);
+                // 2. Incentive & OT
+                if (schedule) {
+                    if (schedule.incentive) {
+                        const inc = Number(schedule.incentive);
+                        dailyIncome += inc;
+                        stats.incentive += inc;
+                    }
+                    if (schedule.otHours > 0) {
+                        const hourlyRate = wage / 8;
+                        let multiplier = schedule.otType === 'ot_1_5' ? 1.5 : schedule.otType === 'ot_2_0' ? 2.0 : 3.0;
+                        if (!schedule.otType) multiplier = 1.0;
 
-                // หาผลต่าง (ms)
-                const diffMs = actualTime - standardTime;
-                
-                if (diffMs > 0) {
-                    // แปลงเป็นนาที
-                    const diffMins = Math.floor(diffMs / 60000);
-                    lateMinutes = diffMins; // เก็บนาทีสายจริง
-
-                    // ตรวจสอบเงื่อนไขการหักเงิน
-                    // 1. ต้องสายเกิน Grace Period (เช่น เกิน 5 นาที)
-                    if (lateMinutes > (config.gracePeriod || 0)) {
-                        status = 'late'; // บังคับเปลี่ยน Status เป็น Late แน่นอน
-                        
-                        // 2. คำนวณเงินที่หัก: (นาทีสาย - อนุโลม) * ค่าปรับต่อนาที
-                        let calcDeduction = (lateMinutes - (config.gracePeriod || 0)) * (config.deductionPerMinute || 0);
-                        
-                        // 3. ห้ามหักเกินเพดานสูงสุด
-                        if (config.maxDeduction > 0 && calcDeduction > config.maxDeduction) {
-                            calcDeduction = config.maxDeduction;
-                        }
-
-                        deduction = Math.round(calcDeduction);
-                        dailyIncome -= deduction; // หักออกจากรายได้วันนั้น
-                        
-                        stats.totalLateMinutes += lateMinutes;
-                        stats.totalDeduction += deduction;
+                        const otAmt = Math.round(hourlyRate * schedule.otHours * multiplier);
+                        dailyIncome += otAmt;
+                        stats.otPay += otAmt;
                     }
                 }
+
+                // 3. 🚨 คำนวณหักมาสาย
+                if (clockInRecord && isWorkDay && schedule && schedule.startTime) {
+                    const actualTime = clockInRecord.createdAt.toDate();
+
+                    // สร้างเวลาเข้างานมาตรฐานจาก Schedule
+                    const [schedH, schedM] = schedule.startTime.split(':').map(Number);
+                    const standardTime = new Date(actualTime);
+                    standardTime.setHours(schedH, schedM, 0, 0);
+
+                    // หาผลต่าง (ms)
+                    const diffMs = actualTime - standardTime;
+
+                    if (diffMs > 0) {
+                        // แปลงเป็นนาที
+                        const diffMins = Math.floor(diffMs / 60000);
+                        lateMinutes = diffMins;
+
+                        // ตรวจสอบเงื่อนไขการหักเงิน
+                        if (lateMinutes > (config.gracePeriod || 0)) {
+                            status = 'late';
+
+                            let calcDeduction = (lateMinutes - (config.gracePeriod || 0)) * (config.deductionPerMinute || 0);
+
+                            if (config.maxDeduction > 0 && calcDeduction > config.maxDeduction) {
+                                calcDeduction = config.maxDeduction;
+                            }
+
+                            deduction = Math.round(calcDeduction);
+                            dailyIncome -= deduction;
+
+                            stats.totalLateMinutes += lateMinutes;
+                            stats.totalDeduction += deduction;
+                        }
+                    }
+                }
+
+                if (status === 'late') stats.lateCount++;
+                else if (status === 'on-time') stats.onTimeCount++;
+
+                if (isWorkDay) stats.totalWorkDays++;
+                if (hasRecord) stats.actualWorkDays++;
+
+                if (dailyIncome < 0) dailyIncome = 0;
+                currentAccumulatedIncome += dailyIncome;
             }
 
-            if (status === 'late') stats.lateCount++;
-            else if (status === 'on-time') stats.onTimeCount++;
+            if (schedule && schedule.type === 'leave') {
+                stats.leaveCount++;
+                status = 'leave';
+            }
 
-            if (isWorkDay) stats.totalWorkDays++;
-            if (hasRecord) stats.actualWorkDays++;
-            
-            if (dailyIncome < 0) dailyIncome = 0;
-            currentAccumulatedIncome += dailyIncome;
+            // ✅ เก็บข้อมูลลง Array
+            dailyBreakdown.push({
+                date: dateObj,
+                status: status,
+                deduction: deduction,
+                hasRecord: hasRecord,
+                clockIn: clockInRecord,
+                clockOut: clockOutRecord,
+                isWorkDay: isWorkDay,
+                lateMinutes: lateMinutes, // จำนวนนาทีที่สาย
+                income: dailyIncome
+            });
         }
 
-        if (schedule && schedule.type === 'leave') {
-             stats.leaveCount++;
-             status = 'leave';
-        }
+        stats.estimatedIncome = currentAccumulatedIncome;
+        const totalActive = stats.totalWorkDays || 1;
+        stats.attendanceRate = Math.round((stats.actualWorkDays / totalActive) * 100);
 
-        // ✅ เก็บข้อมูลลง Array
-        dailyBreakdown.push({
-            date: dateObj,
-            status: status,
-            deduction: deduction, // ยอดเงินที่โดนหัก
-            hasRecord: hasRecord,
-            clockIn: clockIn,
-            clockOut: records.find(r => r.type === 'clock-out' && r.createdAt.toDate().getDate() === day),
-            isWorkDay: isWorkDay,
-            lateMinutes: lateMinutes, // จำนวนนาทีที่สาย
-            income: dailyIncome
-        });
-    }
+        return { stats, graphData, dailyBreakdown };
 
-    stats.estimatedIncome = currentAccumulatedIncome;
-    const totalActive = stats.totalWorkDays || 1;
-    stats.attendanceRate = Math.round((stats.actualWorkDays / totalActive) * 100);
+    }, [records, schedules, config, currentMonth, userType]);
 
-    return { stats, graphData, dailyBreakdown };
-
-  }, [records, schedules, config, currentMonth, userType]);
-
-  return result;
+    return result;
 };

@@ -86,11 +86,85 @@ export const requestsRepo = {
      */
     async updateRequestStatus(requestId, status, adminNote = '') {
         try {
-            await updateDoc(doc(db, 'requests', requestId), {
+            const requestRef = doc(db, 'requests', requestId);
+            const requestSnap = await getDoc(requestRef);
+
+            if (!requestSnap.exists()) throw new Error("Request not found");
+            const request = requestSnap.data();
+
+            // 1. Update Request Status
+            await updateDoc(requestRef, {
                 status,
                 adminNote,
                 processedAt: serverTimestamp()
             });
+
+            // 2. If Approved -> Apply Changes to System
+            if (status === 'approved') {
+
+                // CASE A: Leave Request (ลา) -> Create Schedule (Leave) & Add Attendance Log
+                if (request.type === 'leave') {
+                    // ✅ Fix: Handle both new (nested data) and old (flat) structure
+                    const requestData = request.data || request;
+                    const { startDate, endDate, leaveType, reason } = requestData;
+
+                    // Fallback for legacy date field if startDate is missing
+                    const effectiveDate = startDate || request.date;
+
+                    // Add to Schedules (Mark as Leave)
+                    const scheduleRef = collection(db, 'schedules');
+                    await addDoc(scheduleRef, {
+                        userId: request.userId,
+                        companyId: request.companyId,
+                        date: effectiveDate,
+                        shiftId: 'LEAVE',
+                        type: 'leave',
+                        leaveType: leaveType,
+                        note: reason || adminNote,
+                        createdAt: serverTimestamp()
+                    });
+                }
+
+                // CASE B: Retro/Time Adjustment (แก้เวลา) -> Insert Attendance Record
+                // Note: Check both 'retro' (new) and 'adjustment' (old/legacy) types
+                if (request.type === 'retro' || request.type === 'adjustment' || request.type === 'unscheduled_alert') {
+                    // ✅ Fix: Handle both new and old structure
+                    const requestData = request.data || request;
+                    const { date, timeIn, timeOut } = requestData;
+
+                    // Fallback for legacy targetDate
+                    const effectiveDate = date || request.targetDate;
+
+                    if (timeIn) {
+                        const dateTimeIn = new Date(`${effectiveDate}T${timeIn}:00`);
+                        await addDoc(collection(db, 'attendance'), {
+                            userId: request.userId,
+                            companyId: request.companyId,
+                            date: effectiveDate,
+                            localTimestamp: `${effectiveDate}T${timeIn}:00`,
+                            type: 'clock-in',
+                            status: 'adjusted', // Mark as manual adjustment
+                            note: `Approved Request: ${adminNote}`,
+                            createdAt: Timestamp.fromDate(dateTimeIn)
+                        });
+                    }
+
+                    if (timeOut) {
+                        const dateTimeOut = new Date(`${effectiveDate}T${timeOut}:00`);
+                        await addDoc(collection(db, 'attendance'), {
+                            userId: request.userId,
+                            companyId: request.companyId,
+                            date: effectiveDate,
+                            localTimestamp: `${effectiveDate}T${timeOut}:00`,
+                            type: 'clock-out',
+                            status: 'adjusted',
+                            note: `Approved Request: ${adminNote}`,
+                            createdAt: Timestamp.fromDate(dateTimeOut)
+                        });
+                    }
+                }
+            }
+
         } catch (error) {
             console.error('Error updating request status:', error);
             throw error;
