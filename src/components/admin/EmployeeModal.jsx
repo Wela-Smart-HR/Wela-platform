@@ -5,10 +5,10 @@ import {
   ShieldCheck, Circle, Trash, WarningCircle
 } from '@phosphor-icons/react';
 
-export default function EmployeeModal({ isOpen, onClose, employee, onSave, onDelete, isLoading }) {
+export default function EmployeeModal({ isOpen, onClose, employee, onSave, onDelete, isLoading, shifts = [] }) {
   if (!isOpen) return null;
 
-  // Initial State (ค่าเริ่มต้นว่างๆ)
+  // Initial State
   const initialForm = {
     username: '',
     password: '',
@@ -21,13 +21,13 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, onDel
     type: 'รายเดือน',
     salary: '',
     startDate: '',
-    probationDate: '', // วันผ่านโปร
-    taxMode: 'none',   // ภาษี (ค่าเริ่มต้น: ไม่หัก)
-    shift: 'normal',   // กะงาน
+    probationDate: '',
+    taxMode: 'none',
+    shift: shifts.length > 0 ? shifts[0].id : 'normal',
     bank: 'กสิกรไทย (KBANK)',
     bankNumber: '',
     status: 'active',
-    resignDate: '',    // วันที่ลาออก
+    resignDate: '',
     dayOffs: [0]
   };
 
@@ -112,7 +112,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, onDel
             </h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelStyle}>Email (User)</label>
+                <label className={labelStyle}>Email (User) <span className="text-red-500 ml-1">*</span></label>
                 <input
                   name="email"
                   type="email"
@@ -144,7 +144,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, onDel
             <h3 className={`${sectionTitleStyle} border-slate-800`}>ข้อมูลส่วนตัว</h3>
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2">
-                <label className={labelStyle}>ชื่อ-นามสกุล (ภาษาไทย)</label>
+                <label className={labelStyle}>ชื่อ-นามสกุล (ภาษาไทย) <span className="text-red-500 ml-1">*</span></label>
                 <input name="name" type="text" value={formData.name} onChange={handleChange} className={inputStyle} />
               </div>
               <div className="col-span-2">
@@ -173,7 +173,7 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, onDel
                 <input name="position" type="text" value={formData.position} onChange={handleChange} className={inputStyle} />
               </div>
               <div>
-                <label className={labelStyle}>ประเภทการจ้าง</label>
+                <label className={labelStyle}>ประเภทการจ้าง <span className="text-red-500 ml-1">*</span></label>
                 <div className="relative">
                   <select name="type" value={formData.type} onChange={handleChange} className={inputStyle}>
                     <option>รายเดือน</option>
@@ -183,13 +183,27 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, onDel
                 </div>
               </div>
               <div className="col-span-2">
-                <label className={labelStyle}>เงินเดือน / ค่าจ้าง (บาท)</label>
-                <input name="salary" type="number" value={formData.salary} onChange={handleChange} className={`${inputStyle} bg-emerald-50 border-emerald-200 text-emerald-700 font-bold`} />
+                <label className={labelStyle}>
+                  {formData.type === 'รายวัน' ? 'ค่าจ้างรายวัน (บาท)' : 'เงินเดือน (บาท)'} <span className="text-red-500 ml-1">*</span>
+                </label>
+                <input
+                  name="salary"
+                  type="number"
+                  value={formData.salary}
+                  onChange={handleChange}
+                  className={`${inputStyle} bg-emerald-50 border-emerald-200 text-emerald-700 font-bold`}
+                  placeholder={formData.type === 'รายวัน' ? 'เช่น 500' : 'เช่น 15000'}
+                />
+                <p className="text-[10px] text-emerald-600 mt-1">
+                  {formData.type === 'รายวัน'
+                    ? 'ระบุยอดที่ได้รับต่อวัน (ระบบจะนำไปคำนวณตามวันที่มาทำงานจริง)'
+                    : 'ระบุเงินเดือนเต็มเดือน (ไม่รวมค่าอื่นๆ)'}
+                </p>
               </div>
 
               {/* ภาษี */}
               <div className="col-span-2">
-                <label className={labelStyle}>รูปแบบการหักภาษี</label>
+                <label className={labelStyle}>รูปแบบการหักภาษี <span className="text-red-500 ml-1">*</span></label>
                 <div className="relative">
                   <select name="taxMode" value={formData.taxMode} onChange={handleChange} className={`${inputStyle} pl-10`}>
                     <option value="none">ไม่หัก (ค่าเริ่มต้น)</option>
@@ -203,15 +217,28 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, onDel
 
               {/* กะงาน */}
               <div className="col-span-2">
-                <label className={labelStyle}>กะทำงานเริ่มต้น</label>
-                <div className="relative">
-                  <select name="shift" value={formData.shift} onChange={handleChange} className={`${inputStyle} pl-10`}>
-                    <option value="normal">กะปกติ (09:00 - 18:00)</option>
-                    <option value="afternoon">กะบ่าย (14:00 - 23:00)</option>
-                  </select>
-                  <Clock className="absolute left-3 top-3.5 text-slate-400" size={18} />
-                  <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold" />
-                </div>
+                <label className={labelStyle}>กะทำงานเริ่มต้น <span className="text-red-500 ml-1">*</span></label>
+                {shifts.length > 0 ? (
+                  <div className="relative">
+                    <select name="shift" value={formData.shift} onChange={handleChange} className={`${inputStyle} pl-10`}>
+                      {shifts.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.startTime} - {s.endTime})
+                        </option>
+                      ))}
+                    </select>
+                    <Clock className="absolute left-3 top-3.5 text-slate-400" size={18} />
+                    <CaretDown className="absolute right-3 top-3.5 text-slate-400 pointer-events-none" weight="bold" />
+                  </div>
+                ) : (
+                  <div className="bg-rose-50 border border-rose-100 rounded-xl p-3 flex items-start gap-2 text-xs text-rose-600">
+                    <WarningCircle size={20} weight="fill" className="shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold">ยังไม่ได้ตั้งค่ากะงาน</p>
+                      <p>กรุณาไปที่เมนู <span className="font-bold">Settings &gt; กะงาน</span> เพื่อเพิ่มกะงานก่อนเพิ่มพนักงาน</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* วันที่ */}
@@ -293,7 +320,11 @@ export default function EmployeeModal({ isOpen, onClose, employee, onSave, onDel
         {/* Footer */}
         <div className="p-4 border-t border-slate-100 bg-white flex gap-3 z-20 pb-8 rounded-b-3xl shadow-[0_-5px_15px_rgba(0,0,0,0.03)]">
           <button onClick={onClose} className="flex-1 py-3.5 rounded-xl font-bold text-sm text-slate-600 bg-slate-100 hover:bg-slate-200 transition">ยกเลิก</button>
-          <button onClick={handleSubmit} disabled={isLoading} className="flex-1 py-3.5 rounded-xl font-bold text-sm bg-blue-600 text-white shadow-lg flex items-center justify-center gap-2">
+          <button
+            onClick={handleSubmit}
+            disabled={isLoading || shifts.length === 0}
+            className={`flex-1 py-3.5 rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 ${shifts.length === 0 ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+          >
             {isLoading ? 'กำลังบันทึก...' : 'บันทึกข้อมูล'}
           </button>
         </div>
