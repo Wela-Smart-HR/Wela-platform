@@ -13,6 +13,7 @@ import {
 import { useLocation } from 'react-router-dom';
 import { useSalaryCalculator } from '../../hooks/useSalaryCalculator';
 import { useDialog } from '../../contexts/DialogContext';
+import { useGlobalConfig } from '../../contexts/ConfigContext'; // ✅ Added Import
 
 // Helper Function
 const formatDateForInput = (dateObj) => {
@@ -47,6 +48,10 @@ export default function MyWork() {
     const [loading, setLoading] = useState(false);
 
     // 1. Fetch Config & Profile
+    const { companyConfig } = useGlobalConfig();
+    const showOverview = companyConfig?.features?.myWork?.overview !== false;
+    // Note: If false => Show "Coming Soon", If true => Show Dashboard
+
     useEffect(() => {
         if (!currentUser?.uid) return;
         let unsubscribeUser;
@@ -57,12 +62,9 @@ export default function MyWork() {
                     dailyWage: 500, gracePeriod: 5, deductionPerMinute: 10, maxDeduction: 300, employmentType: 'daily'
                 };
 
-                if (currentUser.companyId) {
-                    const docRef = doc(db, "companies", currentUser.companyId, "settings", "deduction");
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) {
-                        currentConfig = { ...currentConfig, ...docSnap.data() };
-                    }
+                // Merge with global config if available
+                if (companyConfig?.deduction) {
+                    currentConfig = { ...currentConfig, ...companyConfig.deduction };
                 }
                 setDeductionConfig(currentConfig);
 
@@ -268,7 +270,23 @@ export default function MyWork() {
             </div>
 
             {/* === TAB 1: OVERVIEW === */}
-            {activeTab === 'overview' && (
+            {activeTab === 'overview' && !showOverview && (
+                <div className="flex flex-col items-center justify-center py-20 animate-fade-in text-center px-6">
+                    <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6 shadow-inner relative overflow-hidden">
+                        <div className="absolute inset-0 bg-slate-200/50 animate-ping opacity-20 rounded-full"></div>
+                        <WarningOctagon size={48} weight="duotone" className="text-slate-400 relative z-10 animate-pulse" />
+                    </div>
+                    <h3 className="text-xl font-bold text-slate-800 mb-2">Feature In Progress</h3>
+                    <p className="text-sm text-slate-500 max-w-xs leading-relaxed">
+                        ฟีเจอร์นี้กำลังอยู่ในระหว่างการพัฒนา <br /> เพื่อประสบการณ์ที่ดีที่สุดสำหรับคุณ
+                    </p>
+                    <div className="mt-8 px-6 py-2.5 bg-slate-100 text-slate-600 rounded-full text-[10px] font-bold tracking-widest uppercase border border-slate-200 shadow-sm">
+                        Under Development
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'overview' && showOverview && (
                 <div className="animate-fade-in">
 
                     {/* 3. DISCLAIMER BOX (เพิ่มกล่องเตือน) */}
