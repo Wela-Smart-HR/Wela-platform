@@ -25,6 +25,7 @@ export default function Dashboard() {
     // Note: companyName and stats are now managed by useDashboard
     const [pendingRequests, setPendingRequests] = useState([]);
     const [scheduleStatus, setScheduleStatus] = useState('missing');
+    const [zeroStaffAlert, setZeroStaffAlert] = useState(false);
 
     // --- DATA FETCHING ---
     // 1. Requests (Keep specific collection query for now, or move to hook later)
@@ -42,14 +43,28 @@ export default function Dashboard() {
 
     // 3. Requests Logic already set above.
 
-    // 4. Check Schedule
+    // 4. Check Schedule Status
     const checkSchedule = async () => {
+        const today = new Date();
+        const dateStr = today.toISOString().split('T')[0];
+
+        // Check for Zero Staff (Today)
+        const qToday = query(collection(db, "schedules"), where("companyId", "==", currentUser.companyId), where("date", "==", dateStr));
+        const snapToday = await getDocs(qToday);
+
+        if (!snapToday.empty) {
+            const hasWorkingStaff = snapToday.docs.some(d => d.data().type === 'work');
+            setZeroStaffAlert(!hasWorkingStaff);
+        }
+
+        // Check for Missing Schedule (Tomorrow) - Existing Logic
         const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-        const dateStr = tomorrow.toISOString().split('T')[0];
-        const qSch = query(collection(db, "schedules"), where("companyId", "==", currentUser.companyId), where("date", "==", dateStr), limit(1));
-        const snap = await getDocs(qSch);
-        setScheduleStatus(snap.empty ? 'missing' : 'ready');
+        const tmrStr = tomorrow.toISOString().split('T')[0];
+        const qSch = query(collection(db, "schedules"), where("companyId", "==", currentUser.companyId), where("date", "==", tmrStr), limit(1));
+        const snapTmr = await getDocs(qSch);
+        setScheduleStatus(snapTmr.empty ? 'missing' : 'ready');
     };
+
     useEffect(() => {
         if (!currentUser?.companyId) return;
         checkSchedule();
@@ -180,9 +195,57 @@ export default function Dashboard() {
 
             </div>
 
-            {/* 3. BANNER (Schedule Status) */}
+            {/* 3. UNIFIED BANNER SYSTEM */}
             <div className="mb-8 animate-pulse-soft">
-                {scheduleStatus === 'missing' ? (
+                {scheduleStatus === 'zero_staff_today' && (
+                    <div className="bg-[#DC2626] rounded-[20px] sm:rounded-[24px] flex items-center justify-between shadow-lg shadow-rose-200/50 overflow-hidden relative">
+                        <div className="absolute -left-4 -top-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
+                        <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-5 text-white relative z-10">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm shadow-inner">
+                                <WarningOctagon weight="fill" size={24} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-sm sm:text-lg leading-tight">ไม่มีพนักงานเข้ากะวันนี้!</h3>
+                                <p className="text-[10px] sm:text-xs text-white/90 mt-0.5">ด่วน! ตรวจสอบตารางงานวันนี้ทันที</p>
+                            </div>
+                        </div>
+                        <button onClick={() => navigate('/schedule')} className="bg-white text-[#DC2626] px-4 py-2 sm:px-6 sm:py-3 rounded-xl font-bold text-[10px] sm:text-xs shadow-md m-2 sm:m-4 hover:bg-rose-50 transition active:scale-95 whitespace-nowrap z-10">จัดการด่วน</button>
+                    </div>
+                )}
+
+                {scheduleStatus === 'zero_staff_tomorrow' && (
+                    <div className="bg-[#F97316] rounded-[20px] sm:rounded-[24px] flex items-center justify-between shadow-lg shadow-orange-200/50 overflow-hidden relative">
+                        <div className="absolute -left-4 -top-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
+                        <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-5 text-white relative z-10">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm shadow-inner">
+                                <WarningCircle weight="fill" size={24} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-sm sm:text-lg leading-tight">พรุ่งนี้ไม่มีพนักงานเข้ากะ</h3>
+                                <p className="text-[10px] sm:text-xs text-white/90 mt-0.5">โปรดตรวจสอบตารางงานล่วงหน้า</p>
+                            </div>
+                        </div>
+                        <button onClick={() => navigate('/schedule')} className="bg-white text-[#F97316] px-4 py-2 sm:px-6 sm:py-3 rounded-xl font-bold text-[10px] sm:text-xs shadow-md m-2 sm:m-4 hover:bg-orange-50 transition active:scale-95 whitespace-nowrap z-10">ตรวจสอบ</button>
+                    </div>
+                )}
+
+                {scheduleStatus === 'missing_today' && (
+                    <div className="bg-[#DC2626] rounded-[20px] sm:rounded-[24px] flex items-center justify-between shadow-lg shadow-rose-200/50 overflow-hidden relative">
+                        <div className="absolute -left-4 -top-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
+                        <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-5 text-white relative z-10">
+                            <div className="w-10 h-10 sm:w-12 sm:h-12 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm shadow-inner">
+                                <WarningCircle weight="fill" size={24} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-sm sm:text-lg leading-tight">ยังไม่จัดตารางงานวันนี้!</h3>
+                                <p className="text-[10px] sm:text-xs text-white/90 mt-0.5">พนักงานจะไม่สามารถเข้างานได้</p>
+                            </div>
+                        </div>
+                        <button onClick={() => navigate('/schedule')} className="bg-white text-[#DC2626] px-4 py-2 sm:px-6 sm:py-3 rounded-xl font-bold text-[10px] sm:text-xs shadow-md m-2 sm:m-4 hover:bg-rose-50 transition active:scale-95 whitespace-nowrap z-10">จัดการด่วน</button>
+                    </div>
+                )}
+
+                {scheduleStatus === 'missing_tomorrow' && (
                     <div className="bg-[#DC2626] rounded-[20px] sm:rounded-[24px] flex items-center justify-between shadow-lg shadow-rose-200/50 overflow-hidden relative">
                         <div className="absolute -left-4 -top-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
                         <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-5 text-white relative z-10">
@@ -191,17 +254,14 @@ export default function Dashboard() {
                             </div>
                             <div>
                                 <h3 className="font-bold text-sm sm:text-lg leading-tight">ยังไม่จัดตารางงาน</h3>
-                                <p className="text-[10px] sm:text-xs text-white/80 mt-0.5">สำหรับสัปดาห์หน้า</p>
+                                <p className="text-[10px] sm:text-xs text-white/80 mt-0.5">สำหรับวันพรุ่งนี้</p>
                             </div>
                         </div>
-                        <button
-                            onClick={() => navigate('/schedule')}
-                            className="bg-white text-[#DC2626] px-4 py-2 sm:px-6 sm:py-3 rounded-xl font-bold text-[10px] sm:text-xs shadow-md m-2 sm:m-4 hover:bg-rose-50 transition active:scale-95 whitespace-nowrap z-10"
-                        >
-                            จัดการเลย
-                        </button>
+                        <button onClick={() => navigate('/schedule')} className="bg-white text-[#DC2626] px-4 py-2 sm:px-6 sm:py-3 rounded-xl font-bold text-[10px] sm:text-xs shadow-md m-2 sm:m-4 hover:bg-rose-50 transition active:scale-95 whitespace-nowrap z-10">จัดการเลย</button>
                     </div>
-                ) : (
+                )}
+
+                {scheduleStatus === 'ready' && (
                     <div className="bg-[#059669] rounded-[20px] sm:rounded-[24px] flex items-center justify-between shadow-lg shadow-emerald-200/50 overflow-hidden relative">
                         <div className="absolute -left-4 -top-4 w-24 h-24 bg-white/10 rounded-full blur-xl"></div>
                         <div className="flex items-center gap-3 sm:gap-4 p-4 sm:p-5 text-white relative z-10">
@@ -213,12 +273,7 @@ export default function Dashboard() {
                                 <p className="text-[10px] sm:text-xs text-white/80 mt-0.5">ระบบพร้อมใช้งาน</p>
                             </div>
                         </div>
-                        <button
-                            onClick={() => navigate('/schedule', { state: { viewMode: 'monthly' } })}
-                            className="bg-white text-[#059669] px-4 py-2 sm:px-6 sm:py-3 rounded-xl font-bold text-[10px] sm:text-xs shadow-md m-2 sm:m-4 hover:bg-emerald-50 transition active:scale-95 whitespace-nowrap z-10"
-                        >
-                            ดูรายเดือน
-                        </button>
+                        <button onClick={() => navigate('/schedule', { state: { viewMode: 'monthly' } })} className="bg-white text-[#059669] px-4 py-2 sm:px-6 sm:py-3 rounded-xl font-bold text-[10px] sm:text-xs shadow-md m-2 sm:m-4 hover:bg-emerald-50 transition active:scale-95 whitespace-nowrap z-10">ดูรายเดือน</button>
                     </div>
                 )}
             </div>
