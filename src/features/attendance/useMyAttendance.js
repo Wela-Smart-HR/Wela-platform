@@ -382,6 +382,7 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
 
             // คำนวณว่าสายหรือไม่
             let isLate = false;
+            let lateMins = 0;
             const now = new Date();
 
             if (options.scheduleData?.startTime) {
@@ -391,6 +392,9 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
 
                 if (now > scheduleTime) {
                     isLate = true;
+                    // Calculate late minutes
+                    const diffMs = now - scheduleTime;
+                    lateMins = Math.floor(diffMs / 60000);
                 }
             }
 
@@ -400,6 +404,7 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 userId,
                 actionType: 'clock-in',
                 status: isLate ? 'late' : 'on-time',
+                lateMins: isLate ? lateMins : 0, // ✅ Save late minutes
                 location: {
                     lat: location.lat,
                     lng: location.lng
