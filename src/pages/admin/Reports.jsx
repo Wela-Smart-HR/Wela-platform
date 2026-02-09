@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import {
     CalendarBlank, ChartBar, User, Warning, Trophy,
     Funnel, CaretDown, CaretUp, RocketLaunch, CaretLeft, CaretRight,
-    Smiley, Detective, WarningCircle, Clock, Fire, Money, TrendUp
+    Smiley, Detective, WarningCircle, Clock, Fire, Money, TrendUp,
+    Monitor, Checks, X, CalendarCheck
 } from '@phosphor-icons/react';
 import { useAuth } from '../../contexts/AuthContext';
 // ✅ Import Hook จาก Features Architecture
@@ -25,12 +26,50 @@ export default function Reports() {
     const [activeTab, setActiveTab] = useState('overview');
     const [expandedCard, setExpandedCard] = useState(null);
 
-    const { overview, graphData, reportData, loading, isInsightGenerated, analyzeInsights } = useReportsAdmin(currentUser?.companyId, selectedMonth);
+    // Drill-down State
+    const [selectedDay, setSelectedDay] = useState(null);
+    const [dailyDetails, setDailyDetails] = useState([]);
+    const [loadingDaily, setLoadingDaily] = useState(false);
+
+    const [selectedEmployee, setSelectedEmployee] = useState(null);
+    const [employeeHistory, setEmployeeHistory] = useState([]);
+    const [loadingHistory, setLoadingHistory] = useState(false);
+
+    const { overview, graphData, reportData, loading, isInsightGenerated, analyzeInsights, getDailyAttendance, getEmployeeMonthlyAttendance } = useReportsAdmin(currentUser?.companyId, selectedMonth);
 
     const changeMonth = (offset) => {
         const newDate = new Date(selectedMonth);
         newDate.setMonth(newDate.getMonth() + offset);
         setSelectedMonth(newDate);
+        // Reset drill-down
+        setSelectedDay(null);
+        setDailyDetails([]);
+    };
+
+    const handleDayClick = async (data) => {
+        if (!data || !data.dateFull) return;
+        setSelectedDay(data);
+        setLoadingDaily(true);
+        const details = await getDailyAttendance(data.dateFull);
+        setDailyDetails(details);
+        setLoadingDaily(false);
+        // Smooth scroll to details
+        setTimeout(() => {
+            document.getElementById('daily-details-section')?.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+    };
+
+    const handleEmployeeClick = async (emp) => {
+        setSelectedEmployee(emp);
+        setLoadingHistory(true);
+        const history = await getEmployeeMonthlyAttendance(emp.id);
+        setEmployeeHistory(history);
+        setLoadingHistory(false);
+    };
+
+    const closeEmployeeModal = () => {
+        setSelectedEmployee(null);
+        setEmployeeHistory([]);
     };
 
     const fmt = (n) => n?.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -56,9 +95,9 @@ export default function Reports() {
                     <button onClick={() => setActiveTab('overview')} className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'overview' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>
                         <ChartBar weight="fill" /> ภาพรวม
                     </button>
-                    <button onClick={() => setActiveTab('insights')} className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'insights' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>
+                    {/* <button onClick={() => setActiveTab('insights')} className={`flex-1 py-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'insights' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}>
                         <User weight="fill" /> เจาะลึกรายคน
-                    </button>
+                    </button> */}
                 </div>
             </header>
 
@@ -87,19 +126,150 @@ export default function Reports() {
                             <div className="overflow-x-auto pb-2 no-scrollbar">
                                 <div className="h-48 min-w-[800px]">
                                     <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={graphData} barGap={4}>
+                                        <BarChart data={graphData} barGap={4} className="cursor-pointer">
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
                                             <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 10 }} />
                                             <Tooltip cursor={{ fill: 'rgba(255,255,255,0.1)' }} contentStyle={{ backgroundColor: '#1E293B', borderRadius: '8px', border: 'none', fontSize: '12px' }} />
-                                            <Bar name="มาปกติ" dataKey="onTime" stackId="a" fill="#10B981" radius={[0, 0, 4, 4]} barSize={12} />
-                                            <Bar name="สาย" dataKey="late" stackId="a" fill="#F59E0B" radius={[0, 0, 0, 0]} barSize={12} />
-                                            <Bar name="ขาด/ลา" dataKey="absent" stackId="a" fill="#EF4444" radius={[4, 4, 0, 0]} barSize={12} />
+                                            <Bar name="มาปกติ" dataKey="onTime" stackId="a" fill="#10B981" radius={[0, 0, 4, 4]} barSize={12} onClick={(data) => handleDayClick(data)} className="cursor-pointer hover:opacity-80 transition-opacity" />
+                                            <Bar name="สาย" dataKey="late" stackId="a" fill="#F59E0B" radius={[0, 0, 0, 0]} barSize={12} onClick={(data) => handleDayClick(data)} className="cursor-pointer hover:opacity-80 transition-opacity" />
+                                            <Bar name="ขาด/ลา" dataKey="absent" stackId="a" fill="#EF4444" radius={[4, 4, 0, 0]} barSize={12} onClick={(data) => handleDayClick(data)} className="cursor-pointer hover:opacity-80 transition-opacity" />
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
                             </div>
-                            <p className="text-[10px] text-slate-400 text-center mt-2 opacity-50">(( เลื่อนเพื่อดูวันที่อื่นๆ ))</p>
+                            <p className="text-[10px] text-slate-400 text-center mt-2 opacity-50">(( เลื่อนเพื่อดูวันที่อื่นๆ | คลิกที่กราฟเพื่อดูรายชื่อ ))</p>
                         </div>
+
+                        {/* DAILY DRILL-DOWN SECTION */}
+                        {selectedDay && (
+                            <div id="daily-details-section" className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100 animate-fade-in scroll-mt-20">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                                        <CalendarCheck weight="fill" className="text-blue-500" />
+                                        รายละเอียดวันที่ {new Date(selectedDay.dateFull).toLocaleDateString('th-TH', { dateStyle: 'full' })}
+                                    </h3>
+                                    <button onClick={() => setSelectedDay(null)} className="text-slate-400 hover:text-slate-600"><X /></button>
+                                </div>
+
+                                {loadingDaily ? (
+                                    <div className="py-10 text-center text-slate-400"><div className="animate-spin text-2xl mb-2">⏳</div> กำลังโหลดข้อมูล...</div>
+                                ) : dailyDetails.length === 0 ? (
+                                    <div className="py-10 text-center text-slate-400">ไม่มีข้อมูลการลงเวลาในวันนี้</div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {/* HEADER (Hidden on Mobile, Visible on Desktop for clarity) */}
+                                        <div className="hidden md:flex text-xs text-slate-400 font-bold px-4 pb-2 border-b border-slate-100">
+                                            <div className="w-1/3">พนักงาน</div>
+                                            <div className="w-1/3 text-center">เวลาเข้า - ออก</div>
+                                            <div className="w-1/3 text-right">สถานะ</div>
+                                        </div>
+
+                                        {dailyDetails.map((emp) => (
+                                            <div key={emp.id} onClick={() => handleEmployeeClick(emp)} className="bg-white p-3 rounded-xl border border-slate-100 hover:border-blue-200 hover:shadow-md transition-all cursor-pointer group flex flex-col md:flex-row md:items-center gap-3">
+                                                {/* Left: Avatar & Name */}
+                                                <div className="flex items-center gap-3 md:w-1/3">
+                                                    <img src={emp.avatar || `https://ui-avatars.com/api/?name=${emp.name}`} className="w-10 h-10 rounded-full border border-slate-100 shadow-sm" />
+                                                    <div>
+                                                        <p className="font-bold text-slate-700 text-sm group-hover:text-blue-600 transition-colors">{emp.name}</p>
+                                                        {/* Removed 'Click to view history' text as requested */}
+                                                    </div>
+                                                </div>
+
+                                                {/* Middle: Time */}
+                                                <div className="flex items-center justify-between md:justify-center md:w-1/3 bg-slate-50 md:bg-transparent p-2 md:p-0 rounded-lg">
+                                                    <div className="text-center">
+                                                        <span className="text-[10px] text-slate-400 block md:hidden">เข้า</span>
+                                                        <span className="font-mono text-slate-600 font-bold text-sm">
+                                                            {emp.clockIn ? emp.clockIn.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-8 h-[1px] bg-slate-200 md:hidden"></div>
+                                                    <div className="text-center">
+                                                        <span className="text-[10px] text-slate-400 block md:hidden">ออก</span>
+                                                        <span className="font-mono text-slate-600 font-bold text-sm">
+                                                            {emp.clockOut ? emp.clockOut.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Right: Status */}
+                                                <div className="flex justify-end md:w-1/3">
+                                                    <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${emp.status === 'late' ? 'bg-orange-100 text-orange-600' :
+                                                        emp.status === 'absent' ? 'bg-red-100 text-red-600' :
+                                                            'bg-emerald-100 text-emerald-600'
+                                                        }`}>
+                                                        {emp.status === 'late' ? <><Clock weight="fill" /> สาย {emp.lateMins} น.</> :
+                                                            emp.status === 'absent' ? <><WarningCircle weight="fill" /> ขาด/ลา</> :
+                                                                <><Checks weight="bold" /> ปกติ</>}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* EMPLOYEE HISTORY MODAL */}
+                        {selectedEmployee && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-fade-in">
+                                <div className="bg-white w-full max-w-2xl rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+                                    <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                                        <div className="flex items-center gap-3">
+                                            <img src={selectedEmployee.avatar || `https://ui-avatars.com/api/?name=${selectedEmployee.name}`} className="w-10 h-10 rounded-full border border-white shadow-sm" />
+                                            <div>
+                                                <h3 className="font-bold text-slate-800 text-lg">{selectedEmployee.name}</h3>
+                                                <p className="text-xs text-slate-500">ประวัติการลงเวลาเดือน {selectedMonth.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}</p>
+                                            </div>
+                                        </div>
+                                        <button onClick={closeEmployeeModal} className="w-8 h-8 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-400 hover:text-red-500 hover:border-red-200 transition-all"><X weight="bold" /></button>
+                                    </div>
+
+                                    <div className="flex-1 overflow-y-auto p-0">
+                                        {loadingHistory ? (
+                                            <div className="py-20 text-center text-slate-400"><div className="animate-spin text-3xl mb-3">⏳</div> กำลังดึงข้อมูล...</div>
+                                        ) : employeeHistory.length === 0 ? (
+                                            <div className="py-20 text-center text-slate-400">ไม่พบประวัติการลงเวลาในเดือนนี้</div>
+                                        ) : (
+                                            <table className="w-full text-left border-collapse">
+                                                <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
+                                                    <tr>
+                                                        <th className="py-3 px-4 text-xs font-bold text-slate-500">วันที่</th>
+                                                        <th className="py-3 px-4 text-xs font-bold text-slate-500 text-center">เวลาเข้า</th>
+                                                        <th className="py-3 px-4 text-xs font-bold text-slate-500 text-center">เวลากลับ</th>
+                                                        <th className="py-3 px-4 text-xs font-bold text-slate-500 text-center">สถานะ</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-slate-100">
+                                                    {employeeHistory.map((log, i) => (
+                                                        <tr key={i} className="hover:bg-slate-50/50">
+                                                            <td className="py-3 px-4">
+                                                                <span className="font-bold text-slate-700">{new Date(log.date).getDate()}</span> <span className="text-xs text-slate-400">{new Date(log.date).toLocaleDateString('th-TH', { month: 'short' })}</span>
+                                                                <p className="text-[10px] text-slate-400">{new Date(log.date).toLocaleDateString('th-TH', { weekday: 'long' })}</p>
+                                                            </td>
+                                                            <td className="py-3 px-4 text-center font-mono text-slate-600">
+                                                                {log.createdAt ? new Date(log.createdAt.toDate ? log.createdAt.toDate() : log.createdAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-center font-mono text-slate-600">
+                                                                {log.clockOut ? new Date(log.clockOut.toDate ? log.clockOut.toDate() : log.clockOut).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '-'}
+                                                            </td>
+                                                            <td className="py-3 px-4 text-center">
+                                                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${log.status === 'late' ? 'bg-orange-100 text-orange-600' :
+                                                                    log.status === 'absent' ? 'bg-red-100 text-red-600' :
+                                                                        'bg-emerald-100 text-emerald-600'
+                                                                    }`}>
+                                                                    {log.status === 'late' ? `สาย ${log.lateMins} น.` : log.status === 'absent' ? 'ขาด' : 'ปกติ'}
+                                                                </span>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-100">

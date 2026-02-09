@@ -21,6 +21,9 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
     const [loading, setLoading] = useState(false);
     const [isInsightGenerated, setIsInsightGenerated] = useState(false);
 
+    // Cache employees to avoid refetching (Zero-Cost Strategy)
+    const [employeesCache, setEmployeesCache] = useState([]);
+
     const getMonthRange = (date) => {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -56,13 +59,45 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                     where("role", "==", "employee"),
                     where("status", "==", "active") // Filter only active
                 ));
-                const totalActiveStaff = usersSnap.size;
-                const employees = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-                // 2. Try Zero-Cost Query First
-                const dailyQ = query(collection(db, 'companies', companyId, 'daily_attendance'),
-                    where('date', '>=', start), where('date', '<=', end));
-                const dailySnap = await getDocs(dailyQ);
+                // ✅ Deduplicate Users & Filter Soft-Deleted
+                const uniqueUsersMap = new Map();
+                usersSnap.docs.forEach(d => {
+                    const data = d.data();
+                    if (data.active === false) return; // Skip deleted users
+                    if (!uniqueUsersMap.has(d.id)) {
+                        uniqueUsersMap.set(d.id, { id: d.id, ...data });
+                    }
+                });
+                const employees = Array.from(uniqueUsersMap.values());
+                setEmployeesCache(employees); // Store in cache
+
+                const totalActiveStaff = employees.length;
+
+                // 2. Fetch Daily Attendance & Schedules
+                const [dailySnap, schSnap] = await Promise.all([
+                    getDocs(query(collection(db, 'companies', companyId, 'daily_attendance'),
+                        where('date', '>=', start), where('date', '<=', end))),
+                    getDocs(query(collection(db, 'schedules'),
+                        where('companyId', '==', companyId),
+                        where('date', '>=', start),
+                        where('date', '<=', end)))
+                ]);
+
+                // ✅ Map Schedules: Date -> Expected Count
+                const scheduleMap = {};
+                // If schedules exist, we use them. If EMPTY, we use "No Holiday Mode" (Everyone works every day)
+                const hasSchedules = !schSnap.empty;
+
+                if (hasSchedules) {
+                    schSnap.forEach(doc => {
+                        const s = doc.data();
+                        if (s.type === 'work') {
+                            if (!scheduleMap[s.date]) scheduleMap[s.date] = 0;
+                            scheduleMap[s.date]++;
+                        }
+                    });
+                }
 
                 let dailyStats = [];
 
@@ -85,18 +120,34 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                             const late = values.filter(v => v.status === 'late').length;
                             const onTime = Math.max(0, present - late);
 
-                            // ✅ FIX: Calculate Absent
+                            // ✅ FIX: Calculate Absent based on Schedule or "No Holiday Mode"
+                            let expected = 0;
+                            if (hasSchedules) {
+                                expected = scheduleMap[dateStr] || 0;
+                            } else {
+                                // Fallback: "No Holiday Mode" -> Everyday is workday
+                                // (Unless future date)
+                                expected = totalActiveStaff;
+                            }
+
                             let absent = 0;
-                            if (!isWeekend && d <= new Date()) {
-                                absent = Math.max(0, totalActiveStaff - present);
+                            if (d <= new Date()) {
+                                absent = Math.max(0, expected - present);
                             }
 
                             return { day: i + 1, dateFull: dateStr, onTime, late, absent };
                         } else {
-                            // No data logic
+                            // No attendance data logic
+                            let expected = 0;
+                            if (hasSchedules) {
+                                expected = scheduleMap[dateStr] || 0;
+                            } else {
+                                expected = totalActiveStaff;
+                            }
+
                             let absent = 0;
-                            if (!isWeekend && d <= new Date()) {
-                                absent = totalActiveStaff; // Assume all absent if no data and workday
+                            if (d <= new Date()) {
+                                absent = expected; // All absent
                             }
                             return { day: i + 1, dateFull: dateStr, onTime: 0, late: 0, absent: absent };
                         }
@@ -118,7 +169,6 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                     dailyStats = Array.from({ length: daysInMonth }, (_, i) => {
                         const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i + 1);
                         const dateStr = toISODate(d);
-                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
 
                         // ✅ FIX: Robust Date Comparison
                         const attForDay = legacyData.filter(a => {
@@ -136,10 +186,17 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                         const late = attForDay.filter(a => a.status === 'late').length;
                         const onTime = Math.max(0, present - late);
 
-                        // ✅ FIX: Calculate Absent Rough Estimate
+                        // ✅ FIX: Calculate Absent based on Schedule or "No Holiday Mode"
+                        let expected = 0;
+                        if (hasSchedules) {
+                            expected = scheduleMap[dateStr] || 0;
+                        } else {
+                            expected = totalActiveStaff;
+                        }
+
                         let absent = 0;
-                        if (!isWeekend && d <= new Date()) {
-                            absent = Math.max(0, totalActiveStaff - present);
+                        if (d <= new Date()) {
+                            absent = Math.max(0, expected - present);
                         }
 
                         return { day: i + 1, dateFull: dateStr, onTime, late, absent };
@@ -168,15 +225,19 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                 const topGood = [...quickStats].sort((a, b) => b.simpleScore - a.simpleScore).slice(0, 3);
 
                 // Calculated Attendance Rate
-                // Calculate total workdays in month * total employees
-                let workDaysInMonth = 0;
+                // Calculate total workdays in month * expected employees
+                let totalPossibleWorkDays = 0;
                 for (let i = 1; i <= daysInMonth; i++) {
                     const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i);
-                    if (d.getDay() !== 0 && d.getDay() !== 6 && d <= new Date()) {
-                        workDaysInMonth++;
+                    const dateStr = toISODate(d);
+                    if (d <= new Date()) {
+                        if (hasSchedules) {
+                            totalPossibleWorkDays += (scheduleMap[dateStr] || 0);
+                        } else {
+                            totalPossibleWorkDays += totalActiveStaff;
+                        }
                     }
                 }
-                const totalPossibleWorkDays = workDaysInMonth * totalActiveStaff;
                 const totalActualPresent = dailyStats.reduce((acc, curr) => acc + (curr.onTime + curr.late), 0);
 
                 const attRate = totalPossibleWorkDays > 0 ? (totalActualPresent / totalPossibleWorkDays) * 100 : 0;
@@ -354,5 +415,92 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
         } catch (e) { console.error(e); setLoading(false); }
     }, [companyId, selectedMonth]);
 
-    return { overview, graphData, reportData, loading, isInsightGenerated, analyzeInsights };
+    // ===============================================
+    // 3. DRILL-DOWN: Daily Attendance (Specific Date)
+    // ===============================================
+    const getDailyAttendance = useCallback(async (dateStr) => {
+        // dateStr format: YYYY-MM-DD
+        try {
+            // 1. Use Cached Employees (Zero-Cost Read)
+            let employees = employeesCache;
+
+            // Fallback: If cache empty (shouldn't happen often), fetch
+            if (employees.length === 0) {
+                const usersSnap = await getDocs(query(collection(db, "users"),
+                    where("companyId", "==", companyId),
+                    where("role", "==", "employee"),
+                    where("status", "==", "active")
+                ));
+                const uniqueUsersMap = new Map();
+                usersSnap.docs.forEach(d => {
+                    const data = d.data();
+                    if (data.active === false) return; // Skip deleted users
+                    if (!uniqueUsersMap.has(d.id)) uniqueUsersMap.set(d.id, { id: d.id, ...data });
+                });
+                employees = Array.from(uniqueUsersMap.values());
+                setEmployeesCache(employees);
+            }
+
+            // 2. Fetch Attendance for that day
+            // Note: date stored as "YYYY-MM-DD" in attendance collection
+            const attQ = query(
+                collection(db, "attendance"),
+                where("companyId", "==", companyId),
+                where("date", "==", dateStr)
+            );
+            const attSnap = await getDocs(attQ);
+            const attendanceMap = {};
+            attSnap.docs.forEach(d => {
+                attendanceMap[d.data().userId] = d.data();
+            });
+
+            // 3. Merge
+            const dailyDetails = employees.map(emp => {
+                const att = attendanceMap[emp.id];
+                return {
+                    id: emp.id,
+                    name: emp.name,
+                    avatar: emp.avatar,
+                    hasAttendance: !!att,
+                    clockIn: att?.createdAt ? (att.createdAt.toDate ? att.createdAt.toDate() : new Date(att.createdAt)) : null,
+                    clockOut: att?.clockOut ? (att.clockOut.toDate ? att.clockOut.toDate() : new Date(att.clockOut)) : null,
+                    status: att?.status || 'absent', // late, ontime
+                    lateMins: att?.lateMins || 0
+                };
+            });
+
+            return dailyDetails;
+
+        } catch (error) {
+            console.error("Error fetching daily details:", error);
+            return [];
+        }
+    }, [companyId, employeesCache]);
+
+    // ===============================================
+    // 4. DRILL-DOWN: Individual Monthly History
+    // ===============================================
+    const getEmployeeMonthlyAttendance = useCallback(async (employeeId) => {
+        try {
+            const { start, end } = getMonthRange(selectedMonth);
+            // Fetch logs
+            const q = query(
+                collection(db, "attendance"),
+                where("companyId", "==", companyId),
+                where("userId", "==", employeeId),
+                where("date", ">=", start),
+                where("date", "<=", end)
+            );
+            const snap = await getDocs(q);
+            const logs = snap.docs.map(d => d.data());
+
+            // Sort by date desc
+            return logs.sort((a, b) => new Date(b.date) - new Date(a.date));
+        } catch (e) {
+            console.error(e);
+            return [];
+        }
+    }, [companyId, selectedMonth]);
+
+    return { overview, graphData, reportData, loading, isInsightGenerated, analyzeInsights, getDailyAttendance, getEmployeeMonthlyAttendance };
 }
