@@ -90,6 +90,7 @@ export default function Schedule() {
                         daysInMonth={state.daysInMonth}
                         firstDayOfMonth={state.firstDayOfMonth}
                         schedules={state.schedules}
+                        activeEmployees={state.activeEmployees} // Fix Count
                         onDateSelect={handleDateSelect}
                     />
                 )}

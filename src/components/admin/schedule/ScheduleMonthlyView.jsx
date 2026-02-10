@@ -1,5 +1,5 @@
 import React from 'react';
-import { CaretLeft, CaretRight, CalendarBlank, Copy } from '@phosphor-icons/react';
+import { CaretLeft, CaretRight, CalendarBlank, Copy, User } from '@phosphor-icons/react';
 
 // --- HELPER: Timezone Fix ---
 const formatDateLocal = (date) => {
@@ -14,8 +14,11 @@ const formatDateLocal = (date) => {
 export default function ScheduleMonthlyView({
     currentDate, changeMonth, handleAutoSchedule, loading,
     changeDay, setViewMode, onDateSelect,
-    daysInMonth, firstDayOfMonth, schedules
+    daysInMonth, firstDayOfMonth, schedules, activeEmployees = []
 }) {
+    // Optimization: Create a Set of active user IDs for fast lookup
+    const activeUserIds = new Set(activeEmployees.map(e => e.id));
+
     return (
         <div className="animate-fade-in-up">
             <div className="flex flex-col gap-3 mb-6">
@@ -30,17 +33,23 @@ export default function ScheduleMonthlyView({
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-6">
                 <div className="grid grid-cols-7 gap-2 mb-3 text-center">{['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].map(d => <div key={d} className="text-[10px] font-bold text-slate-400">{d}</div>)}</div>
                 <div className="grid grid-cols-7 gap-y-2 gap-x-1">
-                    {[...Array(firstDayOfMonth)].map((_, i) => <div key={`empty-${i}`} className="aspect-square"></div>)}
+                    {[...Array(firstDayOfMonth)].map((_, i) => <div key={`empty-${i}`} className="min-h-[85px]"></div>)}
 
                     {[...Array(daysInMonth)].map((_, i) => {
                         const day = i + 1;
                         const targetDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
                         const dateStr = formatDateLocal(targetDate);
 
-                        const workShifts = schedules.filter(s => s.date === dateStr && s.type === 'work');
-                        const leaveShifts = schedules.filter(s => s.date === dateStr && s.type === 'leave');
-                        const isHoliday = schedules.some(s => s.date === dateStr && s.type === 'holiday');
-                        const hasShifts = workShifts.length > 0 || leaveShifts.length > 0;
+                        const daySchedules = schedules.filter(s => s.date === dateStr && activeUserIds.has(s.userId));
+
+                        const workShifts = daySchedules.filter(s => s.type === 'work');
+                        const leaveShifts = daySchedules.filter(s => s.type === 'leave');
+                        const offShifts = daySchedules.filter(s => s.type === 'off');
+
+                        const isHoliday = daySchedules.some(s => s.type === 'holiday');
+                        const hasShifts = workShifts.length > 0 || leaveShifts.length > 0 || offShifts.length > 0;
+
+                        const isToday = day === new Date().getDate() && currentDate.getMonth() === new Date().getMonth() && currentDate.getFullYear() === new Date().getFullYear();
 
                         return (
                             <div
@@ -53,16 +62,41 @@ export default function ScheduleMonthlyView({
                                         setViewMode('daily');
                                     }
                                 }}
-                                className={`aspect-square rounded-xl flex flex-col items-center justify-center border text-xs font-bold relative cursor-pointer hover:border-blue-400 transition hover:bg-blue-50/20 active:scale-95 ${isHoliday ? 'bg-rose-50 border-rose-100 text-rose-400' : hasShifts ? 'bg-white border-slate-100 text-slate-700' : 'bg-slate-50 border-transparent text-slate-300'}`}
+                                className={`min-h-[85px] p-1 rounded-lg border text-xs relative cursor-pointer transition hover:bg-slate-50 active:scale-95 flex flex-col justify-start items-stretch gap-0.5 ${currentDate.getMonth() !== targetDate.getMonth() ? 'opacity-30' : ''} ${isHoliday ? 'bg-rose-50/30 border-rose-100' : 'bg-white border-slate-100 hover:border-blue-300'}`}
                             >
-                                {day}
+                                {/* Date Number */}
+                                <div className="flex justify-center mb-0.5">
+                                    <div className={`w-5 h-5 flex items-center justify-center rounded-full text-[10px] ${isToday ? 'bg-blue-600 text-white shadow-sm font-bold' : hasShifts ? 'text-slate-700 font-bold' : 'text-slate-400'}`}>
+                                        {day}
+                                    </div>
+                                </div>
+
+                                {/* Event Bars */}
                                 {!isHoliday && hasShifts && (
-                                    <div className="flex gap-0.5 mt-1 justify-center flex-wrap px-1">
-                                        {[...Array(Math.min(workShifts.length, 3))].map((_, idx) => <div key={`w-${idx}`} className="w-1 h-1 rounded-full bg-blue-500"></div>)}
-                                        {[...Array(Math.min(leaveShifts.length, 3))].map((_, idx) => <div key={`l-${idx}`} className="w-1 h-1 rounded-full bg-orange-400"></div>)}
+                                    <>
+                                        {workShifts.length > 0 && (
+                                            <div className="bg-blue-500 text-white h-4 rounded text-[8px] font-medium truncate flex items-center justify-center gap-1 shadow-sm leading-none px-1">
+                                                <span>{workShifts.length} คน</span>
+                                            </div>
+                                        )}
+                                        {leaveShifts.length > 0 && (
+                                            <div className="bg-orange-400 text-white h-4 rounded text-[8px] font-medium truncate flex items-center justify-center gap-1 shadow-sm leading-none px-1">
+                                                <span>{leaveShifts.length} ลา</span>
+                                            </div>
+                                        )}
+                                        {offShifts.length > 0 && (
+                                            <div className="bg-slate-100 text-slate-400 h-4 rounded text-[8px] font-medium truncate flex items-center justify-center gap-1 border border-slate-200 leading-none px-1">
+                                                <span>{offShifts.length} หยุด</span>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+
+                                {isHoliday && (
+                                    <div className="bg-rose-400 text-white h-4 rounded text-[8px] font-bold text-center mt-auto shadow-sm flex items-center justify-center">
+                                        ปิด
                                     </div>
                                 )}
-                                {isHoliday && <div className="text-[8px] mt-1 font-normal">ปิด</div>}
                             </div>
                         );
                     })}

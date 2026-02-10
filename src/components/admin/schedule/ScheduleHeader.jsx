@@ -6,7 +6,7 @@ export default function ScheduleHeader({ viewMode, setViewMode }) {
         <header className="px-6 pt-6 pb-2 z-20 bg-[#FAFAFA]/90 backdrop-blur-sm sticky top-0">
             <div className="flex justify-between items-center mb-4">
                 <h1 className="text-2xl font-bold text-slate-800">
-                    {viewMode === 'monthly' ? 'ตารางงาน (ภาพรวม)' : 'ตารางงาน'}
+                    {viewMode === 'monthly' ? 'ตารางงาน' : 'ตารางงาน'}
                 </h1>
 
                 {/* Navigation Controls */}
