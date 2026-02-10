@@ -58,6 +58,7 @@ export default function Schedule() {
                         offStaff={state.offStaff}
                         openEditModal={actions.openEditModal}
                         setIsManageTodayOpen={actions.setIsManageTodayOpen}
+                        activeEmployees={state.activeEmployees} // New
                     />
                 )}
 

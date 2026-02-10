@@ -107,10 +107,23 @@ export const useAdminSchedule = (initialView = 'daily') => {
                     where("status", "==", "active") // Only Active
                 );
                 const employeeSnapshot = await getDocs(qEmployees);
-                const employees = employeeSnapshot.docs
+                const rawEmployees = employeeSnapshot.docs
                     .map(doc => ({ id: doc.id, ...doc.data() }))
                     .filter(emp => emp.active !== false); // Client-side filter for soft-deletes
-                setActiveEmployees(employees);
+
+                // Deduplicate by Name (Keep the one with avatar or first found)
+                const uniqueEmployees = [];
+                const seenNames = new Set();
+
+                rawEmployees.forEach(emp => {
+                    const cleanName = emp.name?.trim().toLowerCase();
+                    if (cleanName && !seenNames.has(cleanName)) {
+                        seenNames.add(cleanName);
+                        uniqueEmployees.push(emp);
+                    }
+                });
+
+                setActiveEmployees(uniqueEmployees);
 
                 setConfigLoaded(true);
             } catch (e) {
@@ -152,32 +165,48 @@ export const useAdminSchedule = (initialView = 'daily') => {
     // 3. Process Daily Staff
     useEffect(() => {
         const targetDateStr = formatDateLocal(currentDate);
-        const todayData = schedules.filter(s => s.date === targetDateStr);
+
+        // Optimizing lookup
+        const todaySchedules = schedules.filter(s => s.date === targetDateStr);
+        const scheduleMap = new Map();
+        todaySchedules.forEach(s => scheduleMap.set(s.userId, s));
 
         const working = [];
         const leaves = [];
         const off = [];
 
-        todayData.forEach(shift => {
-            const staffObj = {
-                id: shift.id, userId: shift.userId, name: shift.userName || 'Unknown',
-                role: shift.userRole || 'พนักงาน', avatar: shift.userAvatar, type: shift.type,
-                startTime: shift.startTime || '-', endTime: shift.endTime || '-',
-                otType: shift.otType || null, otHours: shift.otHours || 0,
-                incentive: shift.incentive || 0,
-                note: shift.note || '',
-                raw: shift
-            };
+        activeEmployees.forEach(emp => {
+            const shift = scheduleMap.get(emp.id);
 
-            if (shift.type === 'work') working.push(staffObj);
-            else if (shift.type === 'leave') leaves.push(staffObj);
-            else off.push(staffObj);
+            if (shift) {
+                const staffObj = {
+                    id: shift.id,
+                    userId: emp.id,
+                    name: emp.name,
+                    role: emp.position || 'พนักงาน',
+                    avatar: emp.avatar,
+                    type: shift.type,
+                    startTime: shift.startTime || '-',
+                    endTime: shift.endTime || '-',
+                    otType: shift.otType || null,
+                    otHours: shift.otHours || 0,
+                    incentive: shift.incentive || 0,
+                    note: shift.note || '',
+                    shiftCode: shift.shiftCode || '',
+                    color: shift.color || '',
+                    raw: shift
+                };
+
+                if (shift.type === 'work') working.push(staffObj);
+                else if (shift.type === 'leave') leaves.push(staffObj);
+                else off.push(staffObj);
+            }
         });
 
         setWorkingStaff(working);
         setLeaveStaff(leaves);
         setOffStaff(off);
-    }, [schedules, currentDate]);
+    }, [schedules, currentDate, activeEmployees]);
 
     // --- Actions ---
 
