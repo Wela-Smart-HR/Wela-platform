@@ -14,8 +14,13 @@ const formatDateLocal = (date) => {
 export default function ScheduleMonthlyView({
     currentDate, changeMonth, handleAutoSchedule, loading,
     changeDay, setViewMode, onDateSelect,
-    daysInMonth, firstDayOfMonth, schedules, activeEmployees = []
+    daysInMonth, firstDayOfMonth, schedules = [], activeEmployees = []
 }) {
+    // Safety Checks
+    const safeDate = currentDate instanceof Date ? currentDate : new Date();
+    const safeDays = Number.isInteger(daysInMonth) && daysInMonth > 0 ? daysInMonth : new Date(safeDate.getFullYear(), safeDate.getMonth() + 1, 0).getDate();
+    const safeFirstDay = Number.isInteger(firstDayOfMonth) && firstDayOfMonth >= 0 ? firstDayOfMonth : new Date(safeDate.getFullYear(), safeDate.getMonth(), 1).getDay();
+
     // Optimization: Create a Set of active user IDs for fast lookup
     const activeUserIds = new Set(activeEmployees.map(e => e.id));
 
@@ -24,7 +29,7 @@ export default function ScheduleMonthlyView({
             <div className="flex flex-col gap-3 mb-6">
                 <div className="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-100">
                     <button onClick={() => changeMonth(-1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-50 text-slate-400"><CaretLeft weight="bold" /></button>
-                    <div className="flex items-center gap-2"><CalendarBlank weight="fill" className="text-slate-400" /><span className="font-bold text-slate-800 text-sm">{currentDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}</span></div>
+                    <div className="flex items-center gap-2"><CalendarBlank weight="fill" className="text-slate-400" /><span className="font-bold text-slate-800 text-sm">{safeDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}</span></div>
                     <button onClick={() => changeMonth(1)} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-slate-50 text-slate-400"><CaretRight weight="bold" /></button>
                 </div>
                 <button onClick={handleAutoSchedule} disabled={loading} className="w-full flex items-center justify-center gap-1.5 py-3 bg-white border border-slate-200 rounded-xl text-slate-600 text-[10px] font-bold shadow-sm active:scale-95 transition hover:border-blue-300 hover:text-blue-600"><Copy weight="bold" size={16} /> {loading ? 'กำลังสร้าง...' : 'สร้างตารางอัตโนมัติ (Auto)'}</button>
@@ -33,11 +38,11 @@ export default function ScheduleMonthlyView({
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 mb-6">
                 <div className="grid grid-cols-7 gap-2 mb-3 text-center">{['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].map(d => <div key={d} className="text-[10px] font-bold text-slate-400">{d}</div>)}</div>
                 <div className="grid grid-cols-7 gap-y-2 gap-x-1">
-                    {[...Array(firstDayOfMonth)].map((_, i) => <div key={`empty-${i}`} className="min-h-[85px]"></div>)}
+                    {[...Array(safeFirstDay)].map((_, i) => <div key={`empty-${i}`} className="min-h-[85px]"></div>)}
 
-                    {[...Array(daysInMonth)].map((_, i) => {
+                    {[...Array(safeDays)].map((_, i) => {
                         const day = i + 1;
-                        const targetDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+                        const targetDate = new Date(safeDate.getFullYear(), safeDate.getMonth(), day);
                         const dateStr = formatDateLocal(targetDate);
 
                         const daySchedules = schedules.filter(s => s.date === dateStr && activeUserIds.has(s.userId));
@@ -49,7 +54,7 @@ export default function ScheduleMonthlyView({
                         const isHoliday = daySchedules.some(s => s.type === 'holiday');
                         const hasShifts = workShifts.length > 0 || leaveShifts.length > 0 || offShifts.length > 0;
 
-                        const isToday = day === new Date().getDate() && currentDate.getMonth() === new Date().getMonth() && currentDate.getFullYear() === new Date().getFullYear();
+                        const isToday = day === new Date().getDate() && safeDate.getMonth() === new Date().getMonth() && safeDate.getFullYear() === new Date().getFullYear();
 
                         return (
                             <div
@@ -62,7 +67,7 @@ export default function ScheduleMonthlyView({
                                         setViewMode('daily');
                                     }
                                 }}
-                                className={`min-h-[85px] p-1 rounded-lg border text-xs relative cursor-pointer transition hover:bg-slate-50 active:scale-95 flex flex-col justify-start items-stretch gap-0.5 ${currentDate.getMonth() !== targetDate.getMonth() ? 'opacity-30' : ''} ${isHoliday ? 'bg-rose-50/30 border-rose-100' : 'bg-white border-slate-100 hover:border-blue-300'}`}
+                                className={`min-h-[85px] p-1 rounded-lg border text-xs relative cursor-pointer transition hover:bg-slate-50 active:scale-95 flex flex-col justify-start items-stretch gap-0.5 ${safeDate.getMonth() !== targetDate.getMonth() ? 'opacity-30' : ''} ${isHoliday ? 'bg-rose-50/30 border-rose-100' : 'bg-white border-slate-100 hover:border-blue-300'}`}
                             >
                                 {/* Date Number */}
                                 <div className="flex justify-center mb-0.5">
@@ -74,20 +79,49 @@ export default function ScheduleMonthlyView({
                                 {/* Event Bars */}
                                 {!isHoliday && hasShifts && (
                                     <>
+                                        {/* Work Shifts */}
                                         {workShifts.length > 0 && (
-                                            <div className="bg-blue-500 text-white h-4 rounded text-[8px] font-medium truncate flex items-center justify-center gap-1 shadow-sm leading-none px-1">
-                                                <span>{workShifts.length} คน</span>
-                                            </div>
+                                            activeUserIds.size === 1 ? (
+                                                // Single User Mode: Show Shift Name/Time
+                                                workShifts.map((shift, idx) => (
+                                                    <div key={idx} className="bg-blue-500 text-white h-4 rounded text-[9px] font-medium truncate flex items-center justify-center shadow-sm leading-none px-1" title={`${shift.name} (${shift.startTime}-${shift.endTime})`}>
+                                                        {shift.startTime ? `${shift.startTime.slice(0, 5)}-${shift.endTime.slice(0, 5)}` : shift.name}
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                // Admin Mode: Show Count
+                                                <div className="bg-blue-500 text-white h-4 rounded text-[8px] font-medium truncate flex items-center justify-center gap-1 shadow-sm leading-none px-1">
+                                                    <span>{workShifts.length} คน</span>
+                                                </div>
+                                            )
                                         )}
+
+                                        {/* Leave Shifts */}
                                         {leaveShifts.length > 0 && (
-                                            <div className="bg-orange-400 text-white h-4 rounded text-[8px] font-medium truncate flex items-center justify-center gap-1 shadow-sm leading-none px-1">
-                                                <span>{leaveShifts.length} ลา</span>
-                                            </div>
+                                            activeUserIds.size === 1 ? (
+                                                leaveShifts.map((shift, idx) => (
+                                                    <div key={idx} className="bg-orange-400 text-white h-4 rounded text-[9px] font-medium truncate flex items-center justify-center shadow-sm leading-none px-1">
+                                                        {shift.name || 'ลา'}
+                                                    </div>
+                                                ))
+                                            ) : (
+                                                <div className="bg-orange-400 text-white h-4 rounded text-[8px] font-medium truncate flex items-center justify-center gap-1 shadow-sm leading-none px-1">
+                                                    <span>{leaveShifts.length} ลา</span>
+                                                </div>
+                                            )
                                         )}
+
+                                        {/* Off Shifts */}
                                         {offShifts.length > 0 && (
-                                            <div className="bg-slate-100 text-slate-400 h-4 rounded text-[8px] font-medium truncate flex items-center justify-center gap-1 border border-slate-200 leading-none px-1">
-                                                <span>{offShifts.length} หยุด</span>
-                                            </div>
+                                            activeUserIds.size === 1 ? (
+                                                <div className="bg-slate-100 text-slate-400 h-4 rounded text-[9px] font-medium truncate flex items-center justify-center gap-1 border border-slate-200 leading-none px-1">
+                                                    OFF
+                                                </div>
+                                            ) : (
+                                                <div className="bg-slate-100 text-slate-400 h-4 rounded text-[8px] font-medium truncate flex items-center justify-center gap-1 border border-slate-200 leading-none px-1">
+                                                    <span>{offShifts.length} หยุด</span>
+                                                </div>
+                                            )
                                         )}
                                     </>
                                 )}

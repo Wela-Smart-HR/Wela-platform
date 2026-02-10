@@ -9,10 +9,14 @@ import ScheduleMonthlyView from '../../components/admin/schedule/ScheduleMonthly
 import ScheduleCombinedView from '../../components/admin/schedule/ScheduleCombinedView'; // New Combined View
 import EditShiftModal from '../../components/admin/schedule/EditShiftModal';
 import ManageTodayModal from '../../components/admin/schedule/ManageTodayModal';
+import IndividualScheduleModal from '../../components/admin/schedule/IndividualScheduleModal';
 
 export default function Schedule() {
     const location = useLocation();
     const initialView = location.state?.viewMode || 'monthly'; // Default to Monthly now
+
+    // Local UI State for Individual View
+    const [individualViewEmployee, setIndividualViewEmployee] = React.useState(null);
 
     // --- Custom Hook (Logic Layer) ---
     const { state, actions, modals } = useAdminSchedule(initialView);
@@ -75,6 +79,7 @@ export default function Schedule() {
                         currentDate={state.currentDate}
                         changeDay={actions.changeDay}
                         onDaySelect={handleDaySelect}
+                        onStaffClick={(emp) => setIndividualViewEmployee(emp)}
                     />
                 )}
 
@@ -119,6 +124,18 @@ export default function Schedule() {
                 setBulkForm={actions.setBulkForm}
                 executeBulkAction={actions.executeBulkAction}
                 otTypes={state.otTypes}
+            />
+
+            <IndividualScheduleModal
+                isOpen={!!individualViewEmployee}
+                onClose={() => setIndividualViewEmployee(null)}
+                employee={individualViewEmployee}
+                currentDate={state.currentDate}
+                changeMonth={actions.changeMonth}
+                schedules={state.schedules}
+                daysInMonth={state.daysInMonth}
+                firstDayOfMonth={state.firstDayOfMonth}
+                loading={state.loading}
             />
         </div>
     );

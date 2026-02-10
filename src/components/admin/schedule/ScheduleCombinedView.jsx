@@ -16,45 +16,59 @@ const formatDateLocal = (date) => {
 
 export default function ScheduleCombinedView({
     weekStart, changeWeek, setWeekStart, resetToStandardMonday,
-    schedules, activeEmployees = [], openEditModal, currentDate, changeDay, onDaySelect
+    schedules = [], activeEmployees = [], openEditModal, currentDate, changeDay, onDaySelect,
+    onStaffClick // New Prop
 }) {
-    // Generate Week Days Array
-    const weekDays = useMemo(() => {
-        const days = [];
-        let tempDate = new Date(weekStart);
-        const todayStr = formatDateLocal(new Date());
+    // Safety Check: weekStart is required
+    if (!weekStart) return <div className="p-10 text-center text-slate-400 text-sm animate-pulse">กำลังโหลดตารางงาน...</div>;
 
-        for (let i = 0; i < 7; i++) {
-            const dateStr = formatDateLocal(tempDate);
-            days.push({
-                date: tempDate.getDate(),
-                dayName: tempDate.toLocaleDateString('th-TH', { weekday: 'short' }),
-                dateStr: dateStr,
-                isWeekend: (tempDate.getDay() === 0 || tempDate.getDay() === 6),
-                isToday: dateStr === todayStr,
-                isDifferentMonth: tempDate.getMonth() !== weekStart.getMonth(),
-                fullDate: new Date(tempDate)
-            });
-            tempDate.setDate(tempDate.getDate() + 1);
+    // Generate Week Days Array
+    const days = useMemo(() => {
+        const result = [];
+        try {
+            let tempDate = new Date(weekStart);
+            if (isNaN(tempDate.getTime())) {
+                tempDate = new Date(); // Fallback to today if invalid
+            }
+            const todayStr = formatDateLocal(new Date());
+
+            for (let i = 0; i < 7; i++) {
+                const dateStr = formatDateLocal(tempDate);
+                result.push({
+                    date: tempDate.getDate(),
+                    dayName: tempDate.toLocaleDateString('th-TH', { weekday: 'short' }),
+                    dateStr: dateStr,
+                    isWeekend: (tempDate.getDay() === 0 || tempDate.getDay() === 6),
+                    isToday: dateStr === todayStr,
+                    isDifferentMonth: tempDate.getMonth() !== weekStart.getMonth(),
+                    fullDate: new Date(tempDate)
+                });
+                tempDate.setDate(tempDate.getDate() + 1);
+            }
+        } catch (e) {
+            console.error("Error generating days:", e);
         }
-        return days;
+        return result;
     }, [weekStart]);
 
     // Check if current view is standard Monday
     const isStandardMonday = useMemo(() => {
         const d = new Date(weekStart);
-        return d.getDay() === 1;
+        return !isNaN(d.getTime()) && d.getDay() === 1;
     }, [weekStart]);
 
     // Use Active Employees directly instead of filtering from schedules
     // usersWithShifts is now just activeEmployees mapped to consistent format if needed
     const usersWithShifts = useMemo(() => {
-        return activeEmployees.map(u => ({
-            id: u.id,
-            name: u.name || 'Unknown',
-            role: u.position || 'Employee',
-            avatar: u.avatar || `https://ui-avatars.com/api/?name=${u.name}`
-        }));
+        if (!Array.isArray(activeEmployees)) return [];
+        return activeEmployees
+            .filter(u => u && u.id) // Filter out null/undefined
+            .map(u => ({
+                id: u.id,
+                name: u.name || 'Unknown',
+                role: u.position || 'Employee',
+                avatar: u.avatar || `https://ui-avatars.com/api/?name=${u.name}`
+            }));
     }, [activeEmployees]);
 
     // Get Shifts helper
@@ -64,7 +78,7 @@ export default function ScheduleCombinedView({
 
     // Helper: Resolve Color Class from Shift Color ID
     const resolveColor = (colorId, type) => {
-        if (type === 'leave') return 'bg-orange-50 border-orange-100 text-orange-700';
+        if (type === 'leave') return 'bg-orange-50 border-orange-100 text-slate-700';
         if (type === 'holiday') return 'bg-rose-50 border-rose-100 text-rose-700';
         if (type === 'off') return 'bg-slate-50 border-slate-100 text-slate-300';
 
@@ -84,11 +98,8 @@ export default function ScheduleCombinedView({
         <div className="animate-fade-in-up pb-10">
             {/* Header Controls & Week Navigation */}
             <div className="bg-white sticky top-0 z-20 shadow-sm border-b border-slate-100 -mx-6 px-4 pt-3 pb-2 mb-4">
-                <div className="flex justify-between items-center mb-3">
-                    <h2 className="font-bold text-slate-700 flex items-center gap-2 text-sm">
-                        <CalendarBlank className="text-blue-600" weight="fill" />
-                        {weekDays[0].dateStr} - {weekDays[6].dateStr}
-                    </h2>
+                <div className="flex justify-end items-center mb-3">
+                    {/* Date Header Removed as requested */}
 
                     {!isStandardMonday && (
                         <button
@@ -113,9 +124,8 @@ export default function ScheduleCombinedView({
                         />
                         <div className="h-9 bg-white rounded-lg border border-transparent group-hover:border-blue-200 flex items-center justify-center gap-2 transition shadow-inner">
                             <span className="text-xs font-bold text-slate-700 group-hover:text-blue-600">
-                                {weekDays[0].dayName} {weekDays[0].date} - {weekDays[6].dayName} {weekDays[6].date}
+                                {days.length > 0 ? `${days[0].date}-${days[6].date} ${days[6].fullDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}` : '...'}
                             </span>
-                            <PencilSimple className="text-slate-300 group-hover:text-blue-400" size={12} weight="bold" />
                         </div>
                     </div>
 
@@ -129,8 +139,8 @@ export default function ScheduleCombinedView({
                     <div className="flex items-end pb-2 justify-center">
                         <span className="text-[10px] font-bold text-slate-400">ทีม ({usersWithShifts.length})</span>
                     </div>
-                    <div className="grid grid-cols-7 text-center">
-                        {weekDays.map(day => (
+                    <div className="grid grid-cols-7 text-center gap-1">
+                        {days.map(day => (
                             <div
                                 key={day.dateStr}
                                 className="flex flex-col items-center gap-1 group cursor-pointer active:scale-95 transition"
@@ -159,17 +169,20 @@ export default function ScheduleCombinedView({
                     usersWithShifts.map(staff => (
                         <div key={staff.id} className="flex gap-2 items-stretch group">
                             {/* Left: Staff Profile (Compact) */}
-                            <div className="w-[70px] shrink-0 bg-white rounded-xl p-1.5 border border-slate-100 shadow-sm flex flex-col justify-center items-center text-center relative overflow-hidden">
-                                <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-blue-400 to-indigo-400 opacity-0 group-hover:opacity-100 transition"></div>
-                                <img src={staff.avatar} className="w-8 h-8 rounded-full border border-slate-100 shadow-sm mb-1 object-cover bg-slate-50" alt={staff.name} />
+                            <div
+                                onClick={() => onStaffClick && onStaffClick(staff)}
+                                className="w-[70px] shrink-0 bg-white rounded-xl p-1.5 border border-slate-100 shadow-sm flex flex-col justify-center items-center text-center relative overflow-hidden cursor-pointer hover:border-blue-400 hover:shadow-md transition active:scale-95 group/profile"
+                            >
+                                <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-blue-400 to-indigo-400 opacity-0 group-hover/profile:opacity-100 transition"></div>
+                                <img src={staff.avatar} className="w-8 h-8 rounded-full border border-slate-100 shadow-sm mb-1 object-cover bg-slate-50 group-hover/profile:scale-105 transition" alt={staff.name} />
                                 <div className="leading-tight w-full overflow-hidden">
-                                    <div className="font-bold text-[9px] text-slate-700 truncate w-full">{staff.name.split(' ')[0]}</div>
+                                    <div className="font-bold text-[9px] text-slate-700 truncate w-full group-hover/profile:text-blue-600">{staff.name.split(' ')[0]}</div>
                                 </div>
                             </div>
 
                             {/* Right: 7-Day Grid */}
                             <div className="flex-1 grid grid-cols-7 gap-1">
-                                {weekDays.map(day => {
+                                {days.map(day => {
                                     const dayShifts = getShifts(staff.id, day.dateStr);
                                     const hasShift = dayShifts.length > 0;
                                     const shift = hasShift ? dayShifts[0] : null;
@@ -205,7 +218,6 @@ export default function ScheduleCombinedView({
                                                     <div className="absolute top-0.5 right-0.5 flex flex-col gap-0.5">
                                                         {shift.otHours > 0 && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm" title={`OT ${shift.otHours} ชม.`} />}
                                                         {shift.incentive > 0 && <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 shadow-sm" title={`พิเศษ ${shift.incentive} บ.`} />}
-                                                        {shift.note && <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-sm" title={shift.note} />}
                                                     </div>
                                                 </>
                                             ) : (
