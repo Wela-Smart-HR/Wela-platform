@@ -27,7 +27,10 @@ export default function EditShiftModal({
                 ...prev,
                 selectedPreset: shiftId,
                 startTime: preset.startTime,
-                endTime: preset.endTime
+                endTime: preset.endTime,
+                shiftCode: preset.name, // Snapshot Name
+                color: preset.color, // Snapshot Color
+                note: preset.note // Snapshot Default Note
             }));
         }
     };

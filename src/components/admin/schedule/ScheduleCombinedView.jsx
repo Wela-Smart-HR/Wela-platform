@@ -67,12 +67,21 @@ export default function ScheduleCombinedView({
         return schedules.filter(s => s.userId === userId && s.date === dateStr);
     };
 
-    const getShiftColor = (type) => {
-        switch (type) {
-            case 'work': return 'bg-blue-50 border-blue-100 text-blue-700';
-            case 'leave': return 'bg-orange-50 border-orange-100 text-orange-700';
-            case 'holiday': return 'bg-rose-50 border-rose-100 text-rose-700';
-            default: return 'bg-slate-50 border-slate-100 text-slate-400';
+    // Helper: Resolve Color Class from Shift Color ID
+    const resolveColor = (colorId, type) => {
+        if (type === 'leave') return 'bg-orange-50 border-orange-100 text-orange-700';
+        if (type === 'holiday') return 'bg-rose-50 border-rose-100 text-rose-700';
+        if (type === 'off') return 'bg-slate-50 border-slate-100 text-slate-300';
+
+        // Work Colors
+        switch (colorId) {
+            case 'blue': return 'bg-blue-50 border-blue-200 text-blue-700';
+            case 'emerald': return 'bg-emerald-50 border-emerald-200 text-emerald-700';
+            case 'orange': return 'bg-orange-50 border-orange-200 text-orange-700';
+            case 'purple': return 'bg-purple-50 border-purple-200 text-purple-700';
+            case 'rose': return 'bg-rose-50 border-rose-200 text-rose-700';
+            case 'slate': return 'bg-slate-100 border-slate-300 text-slate-700';
+            default: return 'bg-blue-50 border-blue-200 text-blue-700';
         }
     };
 
@@ -171,63 +180,44 @@ export default function ScheduleCombinedView({
                                     const shift = hasShift ? dayShifts[0] : null;
 
                                     return (
-                                        <button
-                                            key={day.dateStr}
-                                            onClick={() => openEditModal({
-                                                ...staff,
-                                                id: hasShift ? shift.id : 'new',
-                                                date: day.dateStr,
-                                                type: hasShift ? shift.type : 'off',
-                                                startTime: hasShift ? shift.startTime : '-',
-                                                endTime: hasShift ? shift.endTime : '-',
-                                                otHours: hasShift ? shift.otHours : 0
-                                            })}
-                                            className={`rounded-xl border flex flex-col items-center justify-center relative overflow-hidden transition-all duration-200 active:scale-95 group/cell ${hasShift
-                                                ? getShiftColor(shift.type)
-                                                : 'bg-white border-dashed border-slate-200 hover:border-blue-200 hover:bg-blue-50/30'
+                                        <div
+                                            key={`${staff.id}-${day.dateStr}`}
+                                            className={`rounded-lg border flex flex-col items-center justify-center cursor-pointer transition relative overflow-hidden group/cell ${hasShift
+                                                ? resolveColor(shift.color, shift.type)
+                                                : 'bg-slate-50 border-dashed border-slate-200 hover:bg-slate-100'
                                                 }`}
+                                            onClick={() => openEditModal({
+                                                id: `${staff.id}_${day.dateStr}`,
+                                                userId: staff.id,
+                                                userName: staff.name,
+                                                date: day.dateStr,
+                                                ...shift // Spread existing shift data if any
+                                            })}
                                         >
-                                            {/* Content */}
                                             {hasShift ? (
-                                                <div className="flex flex-col items-center gap-0.5 p-1 w-full">
-                                                    {shift.type === 'work' && (
+                                                <>
+                                                    {shift.type === 'work' ? (
                                                         <>
-                                                            <div className="text-[10px] font-bold">{shift.startTime}</div>
-                                                            <div className="text-[9px] opacity-70">{shift.endTime}</div>
-                                                            {shift.otHours > 0 && (
-                                                                <div className="mt-1 text-[8px] font-bold bg-white/50 px-1.5 rounded-full text-emerald-600 flex items-center gap-0.5">
-                                                                    OT {shift.otHours}
-                                                                </div>
-                                                            )}
-                                                            {shift.incentive > 0 && (
-                                                                <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-yellow-400 rounded-full"></div>
-                                                            )}
+                                                            <div className="text-[10px] font-bold uppercase tracking-wide">
+                                                                {shift.shiftCode || 'WORK'}
+                                                            </div>
                                                         </>
+                                                    ) : (
+                                                        <div className="text-[9px] font-bold">{shift.type === 'leave' ? 'ลา' : 'หยุด'}</div>
                                                     )}
-                                                    {shift.type === 'leave' && (
-                                                        <>
-                                                            <AirplaneTilt size={14} weight="duotone" />
-                                                            <span className="text-[9px] font-bold mt-1">ลา</span>
-                                                        </>
-                                                    )}
-                                                    {shift.type === 'off' && (
-                                                        <>
-                                                            <Moon size={14} weight="duotone" />
-                                                            <span className="text-[9px] font-bold mt-1">หยุด</span>
-                                                        </>
-                                                    )}
-                                                    {shift.type === 'holiday' && (
-                                                        <>
-                                                            <Gift size={14} weight="duotone" />
-                                                            <span className="text-[9px] font-bold mt-1">ร้านปิด</span>
-                                                        </>
-                                                    )}
-                                                </div>
+
+                                                    {/* Indicators */}
+                                                    <div className="absolute top-0.5 right-0.5 flex flex-col gap-0.5">
+                                                        {shift.otHours > 0 && <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-sm" title={`OT ${shift.otHours} ชม.`} />}
+                                                        {shift.incentive > 0 && <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 shadow-sm" title={`พิเศษ ${shift.incentive} บ.`} />}
+                                                        {shift.note && <div className="w-1.5 h-1.5 rounded-full bg-purple-500 shadow-sm" title={shift.note} />}
+                                                    </div>
+                                                </>
                                             ) : (
-                                                <Plus className="text-slate-300 opacity-0 group-hover/cell:opacity-100 transition-opacity" weight="bold" />
+                                                <Plus className="text-slate-200 opacity-0 group-hover/cell:opacity-100 transition" weight="bold" />
                                             )}
-                                        </button>
-                                    )
+                                        </div>
+                                    );
                                 })}
                             </div>
                         </div>

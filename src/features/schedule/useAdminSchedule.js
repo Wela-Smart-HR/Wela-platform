@@ -174,6 +174,9 @@ export const useAdminSchedule = (initialView = 'daily') => {
             endTime: staff.endTime !== '-' ? staff.endTime : defaultEnd,
             hasOT: staff.otHours > 0, otType: staff.otType || otTypes[0]?.id || '', otHours: staff.otHours || 0,
             incentive: staff.incentive || 0,
+            shiftCode: staff.shiftCode || staff.name || 'WORK',
+            color: staff.color || 'blue',
+            note: staff.note || '',
             selectedPreset: ''
         });
         setIsEditModalOpen(true);
@@ -190,6 +193,9 @@ export const useAdminSchedule = (initialView = 'daily') => {
                 otType: (editingShift.type === 'work' && editingShift.hasOT) ? editingShift.otType : null,
                 otHours: (editingShift.type === 'work' && editingShift.hasOT) ? Number(editingShift.otHours) : 0,
                 incentive: (editingShift.type === 'work') ? Number(editingShift.incentive) : 0,
+                shiftCode: (editingShift.type === 'work') ? editingShift.shiftCode : '',
+                color: (editingShift.type === 'work') ? editingShift.color : '',
+                note: editingShift.note || '',
                 updatedAt: serverTimestamp()
             };
             await updateDoc(doc(db, "schedules", editingShift.docId), updateData);
@@ -207,20 +213,17 @@ export const useAdminSchedule = (initialView = 'daily') => {
             return dialog.showAlert("ไม่พบข้อมูล 'กะงาน' ในระบบ \nกรุณาไปที่เมนู Settings > กฎ & กะงาน แล้วสร้างกะงานก่อนครับ", "ข้อมูลไม่ครบ", "warning");
         }
 
-        const mainShift = companyShifts[0];
-        const timeRange = `${mainShift.startTime}-${mainShift.endTime}`;
-
         const isConfirmed = await dialog.showConfirm(
-            `ระบบจะสร้างตารางกะ "${mainShift.name}" (${timeRange}) ให้พนักงานทุกคนในเดือนนี้\n(ข้อมูลเดิมจะถูกเขียนทับ)`,
+            `ระบบจะสร้างตารางงานให้พนักงานทุกคนในเดือนนี้ โดยอิงตาม "กะงานเริ่มต้น" ของพนักงานแต่ละคน\n(ข้อมูลเดิมในเดือนนี้จะถูกเขียนทับ)`,
             "สร้างตารางอัตโนมัติ?"
         );
 
         if (isConfirmed) {
-            executeAutoSchedule(mainShift);
+            executeAutoSchedule();
         }
     };
 
-    const executeAutoSchedule = async (mainShift) => {
+    const executeAutoSchedule = async () => {
         setLoading(true);
         try {
             const qUsers = query(collection(db, "users"), where("companyId", "==", currentUser.companyId), where("role", "==", "employee"));
@@ -230,10 +233,20 @@ export const useAdminSchedule = (initialView = 'daily') => {
                 return dialog.showAlert("ไม่พบข้อมูลพนักงานในระบบ", "แจ้งเตือน", "warning");
             }
 
+            // Fallback shift (first one)
+            const globalDefaultShift = companyShifts[0];
+
             const allOperations = [];
             userSnapshot.forEach(userDoc => {
                 const user = userDoc.data();
                 const userDayOffs = user.dayOffs || [0];
+
+                // Determin Shift for this User
+                let targetShift = globalDefaultShift;
+                if (user.shift) {
+                    const foundShift = companyShifts.find(s => s.id === user.shift);
+                    if (foundShift) targetShift = foundShift;
+                }
 
                 for (let day = 1; day <= daysInMonth; day++) {
                     const dateObj = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
@@ -241,14 +254,17 @@ export const useAdminSchedule = (initialView = 'daily') => {
                     const isDayOff = userDayOffs.includes(dateObj.getDay());
 
                     allOperations.push({
-                        ref: doc(db, "schedules", `${userDoc.id}_dateStr`),
+                        ref: doc(db, "schedules", `${userDoc.id}_${dateStr}`), // Fixed ID Format to be consistent
                         data: {
                             companyId: currentUser.companyId, userId: userDoc.id, userName: user.name || 'No Name',
                             userRole: user.position || 'Employee', userAvatar: user.avatar || '',
                             date: dateStr,
-                            startTime: isDayOff ? "" : mainShift.startTime,
-                            endTime: isDayOff ? "" : mainShift.endTime,
+                            startTime: isDayOff ? "" : targetShift.startTime,
+                            endTime: isDayOff ? "" : targetShift.endTime,
                             type: isDayOff ? 'off' : 'work',
+                            shiftCode: isDayOff ? '' : (targetShift.name || 'WORK'),
+                            color: isDayOff ? '' : (targetShift.color || 'blue'),
+                            note: isDayOff ? '' : (targetShift.note || ''),
                             createdAt: serverTimestamp()
                         }
                     });
@@ -262,7 +278,7 @@ export const useAdminSchedule = (initialView = 'daily') => {
                 await batch.commit();
             }
 
-            dialog.showAlert(`ปรับปรุงตารางงาน ${allOperations.length} รายการเรียบร้อย!`, "เสร็จสิ้น", "success");
+            dialog.showAlert(`สร้างตารางงาน ${allOperations.length} รายการเรียบร้อย!`, "เสร็จสิ้น", "success");
 
         } catch (e) {
             console.error(e);
