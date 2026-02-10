@@ -11,6 +11,19 @@ const formatDateLocal = (date) => {
     return `${year}-${month}-${day}`;
 };
 
+// Helper: Resolve Color
+const resolveShiftColor = (colorId) => {
+    switch (colorId) {
+        case 'blue': return 'bg-blue-500 text-white'; // Darker for monthly view visibility
+        case 'emerald': return 'bg-emerald-500 text-white';
+        case 'orange': return 'bg-orange-500 text-white';
+        case 'purple': return 'bg-purple-500 text-white';
+        case 'rose': return 'bg-rose-500 text-white';
+        case 'slate': return 'bg-slate-500 text-white';
+        default: return 'bg-blue-500 text-white';
+    }
+};
+
 export default function ScheduleMonthlyView({
     currentDate, changeMonth, handleAutoSchedule, loading,
     changeDay, setViewMode, onDateSelect,
@@ -82,12 +95,15 @@ export default function ScheduleMonthlyView({
                                         {/* Work Shifts */}
                                         {workShifts.length > 0 && (
                                             activeUserIds.size === 1 ? (
-                                                // Single User Mode: Show Shift Name/Time
-                                                workShifts.map((shift, idx) => (
-                                                    <div key={idx} className="bg-blue-500 text-white h-4 rounded text-[9px] font-medium truncate flex items-center justify-center shadow-sm leading-none px-1" title={`${shift.name} (${shift.startTime}-${shift.endTime})`}>
-                                                        {shift.startTime ? `${shift.startTime.slice(0, 5)}-${shift.endTime.slice(0, 5)}` : shift.name}
-                                                    </div>
-                                                ))
+                                                // Single User Mode: Show Shift Name & Color
+                                                workShifts.map((shift, idx) => {
+                                                    const colorClass = resolveShiftColor(shift.color || 'blue');
+                                                    return (
+                                                        <div key={idx} className={`${colorClass} h-4 rounded text-[9px] font-medium truncate flex items-center justify-center shadow-sm leading-none px-1 mb-0.5`} title={`${shift.name} (${shift.startTime}-${shift.endTime})`}>
+                                                            {shift.name || shift.shiftCode || 'Shift'}
+                                                        </div>
+                                                    );
+                                                })
                                             ) : (
                                                 // Admin Mode: Show Count
                                                 <div className="bg-blue-500 text-white h-4 rounded text-[8px] font-medium truncate flex items-center justify-center gap-1 shadow-sm leading-none px-1">

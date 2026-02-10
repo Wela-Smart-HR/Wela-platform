@@ -61,7 +61,7 @@ export default function Schedule() {
                         leaveStaff={state.leaveStaff}
                         offStaff={state.offStaff}
                         openEditModal={actions.openEditModal}
-                        setIsManageTodayOpen={actions.setIsManageTodayOpen}
+                        openManageTodayModal={actions.openManageTodayModal}
                         activeEmployees={state.activeEmployees} // New
                     />
                 )}
@@ -80,6 +80,7 @@ export default function Schedule() {
                         changeDay={actions.changeDay}
                         onDaySelect={handleDaySelect}
                         onStaffClick={(emp) => setIndividualViewEmployee(emp)}
+                        openManageTodayModal={actions.openManageTodayModal}
                     />
                 )}
 
@@ -112,6 +113,7 @@ export default function Schedule() {
                 companyShifts={state.companyShifts}
                 otTypes={state.otTypes}
                 loading={state.loading}
+                activeEmployees={state.activeEmployees}
             />
 
             <ManageTodayModal
@@ -124,6 +126,7 @@ export default function Schedule() {
                 setBulkForm={actions.setBulkForm}
                 executeBulkAction={actions.executeBulkAction}
                 otTypes={state.otTypes}
+                workingStaff={state.workingStaff} // Pass for Cost Calc
             />
 
             <IndividualScheduleModal

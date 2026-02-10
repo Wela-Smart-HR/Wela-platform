@@ -216,12 +216,30 @@ export const useAdminSchedule = (initialView = 'daily') => {
                     note: shift.note || '',
                     shiftCode: shift.shiftCode || '',
                     color: shift.color || '',
-                    raw: shift
+                    raw: shift,
+                    salary: emp.salary || 0,        // For Cost Calc
+                    dailyWage: emp.dailyWage || 0   // For Cost Calc
                 };
 
                 if (shift.type === 'work') working.push(staffObj);
                 else if (shift.type === 'leave') leaves.push(staffObj);
-                else off.push(staffObj);
+                else off.push(staffObj); // shift.type === 'off' or 'holiday'
+            } else {
+                // No schedule found -> Treat as Off/Unscheduled
+                off.push({
+                    id: `unscheduled_${emp.id}`,
+                    userId: emp.id,
+                    name: emp.name,
+                    role: emp.position || 'พนักงาน',
+                    avatar: emp.avatar,
+                    type: 'off',
+                    startTime: '-',
+                    endTime: '-',
+                    note: 'ยังไม่จัดตาราง',
+                    color: 'slate',
+                    salary: emp.salary || 0,
+                    dailyWage: emp.dailyWage || 0
+                });
             }
         });
 
@@ -392,6 +410,12 @@ export const useAdminSchedule = (initialView = 'daily') => {
         setIsManageTodayOpen(false);
     };
 
+    const openManageTodayModal = () => {
+        setBulkForm({ incentive: '', otType: '', otHours: 0 });
+        setManageTodayTab('bonus');
+        setIsManageTodayOpen(true);
+    };
+
     return {
         state: {
             viewMode, currentDate, weekStart, loading,
@@ -407,7 +431,8 @@ export const useAdminSchedule = (initialView = 'daily') => {
             handleAutoSchedule,
             openEditModal, saveShiftEdit,
             setIsEditModalOpen, setEditingShift,
-            setIsManageTodayOpen, executeBulkAction,
+            setIsManageTodayOpen, openManageTodayModal, // Export New Action
+            executeBulkAction,
             setManageTodayTab, setBulkForm
         },
         modals: {
