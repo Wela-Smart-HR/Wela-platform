@@ -151,8 +151,30 @@ export const useAdminSchedule = (initialView = 'daily') => {
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-            const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setSchedules(docs);
+            const rawDocs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // Deduplicate Schedules: Logic "Last Write Wins" or "Latest updatedAt"
+            // Key = `${userId}_${date}`
+            const scheduleMap = new Map();
+
+            rawDocs.forEach(doc => {
+                const key = `${doc.userId}_${doc.date}`;
+                const existing = scheduleMap.get(key);
+
+                if (!existing) {
+                    scheduleMap.set(key, doc);
+                } else {
+                    // Conflict Resolution: Prefer latest 'updatedAt'
+                    const existingTime = existing.updatedAt?.toMillis() || 0;
+                    const newTime = doc.updatedAt?.toMillis() || 0;
+
+                    if (newTime > existingTime) {
+                        scheduleMap.set(key, doc);
+                    }
+                }
+            });
+
+            setSchedules(Array.from(scheduleMap.values()));
             setLoading(false);
         }, (error) => {
             console.error("Error fetching schedules:", error);
