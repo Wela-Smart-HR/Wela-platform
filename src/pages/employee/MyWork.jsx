@@ -226,15 +226,13 @@ export default function MyWork() {
         setLoading(true);
         try {
             await addDoc(collection(db, "requests"), {
-                companyId: currentUser.companyId, userId: currentUser.uid, userName: currentUser.displayName || currentUser.email,
-                type: 'adjustment', // Note: requests.repo.js checks for 'retro' or 'unscheduled_alert', need to align this.
-                // Actually, repo checks 'retro' OR 'unscheduled_alert'. Let's use 'retro' for clarity or match repo.
-                // Update: let's use 'retro' to be safe with repo logic.
-                // Wait, repo says: if (request.type === 'retro' || request.type === 'unscheduled_alert')
-                // So I should use 'retro' here.
+                companyId: currentUser.companyId,
+                userId: currentUser.uid,
+                userName: currentUser.displayName || currentUser.email,
                 type: 'retro',
-                status: 'pending', createdAt: serverTimestamp(),
-                data: { // ✅ Fix: Nest data
+                status: 'pending',
+                createdAt: serverTimestamp(),
+                data: {
                     date: adjustForm.date || formatDateForInput(selectedDate),
                     timeIn: adjustForm.timeIn,
                     timeOut: adjustForm.timeOut,
