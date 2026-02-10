@@ -69,6 +69,7 @@ export default function Schedule() {
                         setWeekStart={actions.setWeekStart}
                         resetToStandardMonday={actions.resetToStandardMonday}
                         schedules={state.schedules}
+                        activeEmployees={state.activeEmployees} // New
                         openEditModal={actions.openEditModal}
                         currentDate={state.currentDate}
                         changeDay={actions.changeDay}

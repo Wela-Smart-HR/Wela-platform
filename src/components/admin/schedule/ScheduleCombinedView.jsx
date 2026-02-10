@@ -16,7 +16,7 @@ const formatDateLocal = (date) => {
 
 export default function ScheduleCombinedView({
     weekStart, changeWeek, setWeekStart, resetToStandardMonday,
-    schedules, openEditModal, currentDate, changeDay, onDaySelect
+    schedules, activeEmployees = [], openEditModal, currentDate, changeDay, onDaySelect
 }) {
     // Generate Week Days Array
     const weekDays = useMemo(() => {
@@ -46,21 +46,16 @@ export default function ScheduleCombinedView({
         return d.getDay() === 1;
     }, [weekStart]);
 
-    // Group Shifts by User
+    // Use Active Employees directly instead of filtering from schedules
+    // usersWithShifts is now just activeEmployees mapped to consistent format if needed
     const usersWithShifts = useMemo(() => {
-        const userMap = new Map();
-        schedules.forEach(s => {
-            if (!userMap.has(s.userId)) {
-                userMap.set(s.userId, {
-                    id: s.userId,
-                    name: s.userName || 'Unknown',
-                    role: s.userRole || 'Employee',
-                    avatar: s.userAvatar || `https://ui-avatars.com/api/?name=${s.userName}`
-                });
-            }
-        });
-        return Array.from(userMap.values());
-    }, [schedules]);
+        return activeEmployees.map(u => ({
+            id: u.id,
+            name: u.name || 'Unknown',
+            role: u.position || 'Employee',
+            avatar: u.avatar || `https://ui-avatars.com/api/?name=${u.name}`
+        }));
+    }, [activeEmployees]);
 
     // Get Shifts helper
     const getShifts = (userId, dateStr) => {

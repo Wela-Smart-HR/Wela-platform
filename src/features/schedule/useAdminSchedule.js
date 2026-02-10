@@ -39,6 +39,7 @@ export const useAdminSchedule = (initialView = 'daily') => {
     // Data State
     const [schedules, setSchedules] = useState([]);
     const [companyShifts, setCompanyShifts] = useState([]);
+    const [activeEmployees, setActiveEmployees] = useState([]); // New: Active Employees
     const [otTypes, setOtTypes] = useState([]);
     const [configLoaded, setConfigLoaded] = useState(false);
 
@@ -84,11 +85,12 @@ export const useAdminSchedule = (initialView = 'daily') => {
         setWeekStart(getMonday(new Date()));
     }, []);
 
-    // 1. Fetch Config
+    // 1. Fetch Config & Employees
     useEffect(() => {
         if (!currentUser?.companyId) return;
         const fetchConfig = async () => {
             try {
+                // Fetch Company Config
                 const compDoc = await getDoc(doc(db, "companies", currentUser.companyId));
                 if (compDoc.exists()) {
                     const data = compDoc.data();
@@ -96,14 +98,29 @@ export const useAdminSchedule = (initialView = 'daily') => {
                     const rawOT = data.otTypes || [];
                     setOtTypes(rawOT.sort((a, b) => a.rate - b.rate));
                 }
+
+                // Fetch Active Employees
+                const qEmployees = query(
+                    collection(db, "users"),
+                    where("companyId", "==", currentUser.companyId),
+                    where("role", "==", "employee"),
+                    where("status", "==", "active") // Only Active
+                );
+                const employeeSnapshot = await getDocs(qEmployees);
+                const employees = employeeSnapshot.docs
+                    .map(doc => ({ id: doc.id, ...doc.data() }))
+                    .filter(emp => emp.active !== false); // Client-side filter for soft-deletes
+                setActiveEmployees(employees);
+
                 setConfigLoaded(true);
             } catch (e) {
-                console.error("Error fetching config:", e);
-                dialog.showAlert("ไม่สามารถโหลดข้อมูลบริษัทได้", "Error", "error");
+                console.error("Error fetching config/employees:", e);
+                dialog.showAlert("โหลดข้อมูลไม่สำเร็จ", "Error", "error");
             }
         };
         fetchConfig();
     }, [currentUser]);
+
 
     // 2. Fetch Schedules (Monthly)
     useEffect(() => {
@@ -327,7 +344,9 @@ export const useAdminSchedule = (initialView = 'daily') => {
     return {
         state: {
             viewMode, currentDate, weekStart, loading,
-            schedules, companyShifts, otTypes,
+            schedules,
+            activeEmployees, // New
+            companyShifts, otTypes,
             workingStaff, leaveStaff, offStaff,
             daysInMonth, firstDayOfMonth
         },
