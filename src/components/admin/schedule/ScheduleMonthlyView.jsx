@@ -13,7 +13,7 @@ const formatDateLocal = (date) => {
 
 export default function ScheduleMonthlyView({
     currentDate, changeMonth, handleAutoSchedule, loading,
-    changeDay, setViewMode,
+    changeDay, setViewMode, onDateSelect,
     daysInMonth, firstDayOfMonth, schedules
 }) {
     return (
@@ -40,11 +40,23 @@ export default function ScheduleMonthlyView({
                         const workShifts = schedules.filter(s => s.date === dateStr && s.type === 'work');
                         const leaveShifts = schedules.filter(s => s.date === dateStr && s.type === 'leave');
                         const isHoliday = schedules.some(s => s.date === dateStr && s.type === 'holiday');
+                        const hasShifts = workShifts.length > 0 || leaveShifts.length > 0;
 
                         return (
-                            <div key={day} onClick={() => { changeDay(day); setViewMode('daily'); }} className={`aspect-square rounded-xl flex flex-col items-center justify-center border text-xs font-bold relative cursor-pointer hover:border-blue-400 transition ${isHoliday ? 'bg-rose-50 border-rose-100 text-rose-400' : (workShifts.length > 0 || leaveShifts.length > 0) ? 'bg-white border-slate-100 text-slate-700' : 'bg-slate-50 border-transparent text-slate-300'}`}>
+                            <div
+                                key={day}
+                                onClick={() => {
+                                    if (onDateSelect) {
+                                        onDateSelect(targetDate);
+                                    } else {
+                                        changeDay(day);
+                                        setViewMode('daily');
+                                    }
+                                }}
+                                className={`aspect-square rounded-xl flex flex-col items-center justify-center border text-xs font-bold relative cursor-pointer hover:border-blue-400 transition hover:bg-blue-50/20 active:scale-95 ${isHoliday ? 'bg-rose-50 border-rose-100 text-rose-400' : hasShifts ? 'bg-white border-slate-100 text-slate-700' : 'bg-slate-50 border-transparent text-slate-300'}`}
+                            >
                                 {day}
-                                {!isHoliday && (
+                                {!isHoliday && hasShifts && (
                                     <div className="flex gap-0.5 mt-1 justify-center flex-wrap px-1">
                                         {[...Array(Math.min(workShifts.length, 3))].map((_, idx) => <div key={`w-${idx}`} className="w-1 h-1 rounded-full bg-blue-500"></div>)}
                                         {[...Array(Math.min(leaveShifts.length, 3))].map((_, idx) => <div key={`l-${idx}`} className="w-1 h-1 rounded-full bg-orange-400"></div>)}
@@ -52,7 +64,7 @@ export default function ScheduleMonthlyView({
                                 )}
                                 {isHoliday && <div className="text-[8px] mt-1 font-normal">ปิด</div>}
                             </div>
-                        )
+                        );
                     })}
                 </div>
             </div>

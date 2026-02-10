@@ -33,6 +33,7 @@ export const useAdminSchedule = (initialView = 'daily') => {
     // --- State ---
     const [viewMode, setViewMode] = useState(initialView);
     const [currentDate, setCurrentDate] = useState(new Date());
+    const [weekStart, setWeekStart] = useState(new Date()); // New state for Weekly View
     const [loading, setLoading] = useState(false);
 
     // Data State
@@ -59,7 +60,29 @@ export const useAdminSchedule = (initialView = 'daily') => {
     const daysInMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0).getDate();
     const firstDayOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay();
 
+    // Weekly Helpers
+    const getMonday = (d) => {
+        d = new Date(d);
+        const day = d.getDay(), diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        return new Date(d.setDate(diff));
+    };
+
+    const changeWeek = (offset) => {
+        const newDate = new Date(weekStart);
+        newDate.setDate(newDate.getDate() + (offset * 7));
+        setWeekStart(newDate);
+    };
+
+    const resetToStandardMonday = () => {
+        setWeekStart(getMonday(new Date()));
+    };
+
     // --- Effects ---
+
+    // 0. Init Week Start on Mount
+    useEffect(() => {
+        setWeekStart(getMonday(new Date()));
+    }, []);
 
     // 1. Fetch Config
     useEffect(() => {
@@ -218,7 +241,7 @@ export const useAdminSchedule = (initialView = 'daily') => {
                     const isDayOff = userDayOffs.includes(dateObj.getDay());
 
                     allOperations.push({
-                        ref: doc(db, "schedules", `${userDoc.id}_${dateStr}`),
+                        ref: doc(db, "schedules", `${userDoc.id}_dateStr`),
                         data: {
                             companyId: currentUser.companyId, userId: userDoc.id, userName: user.name || 'No Name',
                             userRole: user.position || 'Employee', userAvatar: user.avatar || '',
@@ -287,16 +310,17 @@ export const useAdminSchedule = (initialView = 'daily') => {
 
     return {
         state: {
-            viewMode, currentDate, loading,
+            viewMode, currentDate, weekStart, loading,
             schedules, companyShifts, otTypes,
             workingStaff, leaveStaff, offStaff,
             daysInMonth, firstDayOfMonth
         },
         actions: {
             setViewMode, changeMonth, changeDay,
+            changeWeek, setWeekStart, resetToStandardMonday,
             handleAutoSchedule,
             openEditModal, saveShiftEdit,
-            setIsEditModalOpen, setEditingShift, // Expose these for modal control
+            setIsEditModalOpen, setEditingShift,
             setIsManageTodayOpen, executeBulkAction,
             setManageTodayTab, setBulkForm
         },

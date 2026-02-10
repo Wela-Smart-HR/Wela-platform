@@ -6,20 +6,41 @@ import { useAdminSchedule } from '../../features/schedule/useAdminSchedule';
 import ScheduleHeader from '../../components/admin/schedule/ScheduleHeader';
 import ScheduleDailyView from '../../components/admin/schedule/ScheduleDailyView';
 import ScheduleMonthlyView from '../../components/admin/schedule/ScheduleMonthlyView';
+import ScheduleCombinedView from '../../components/admin/schedule/ScheduleCombinedView'; // New Combined View
 import EditShiftModal from '../../components/admin/schedule/EditShiftModal';
 import ManageTodayModal from '../../components/admin/schedule/ManageTodayModal';
 
 export default function Schedule() {
     const location = useLocation();
-    const initialView = location.state?.viewMode || 'daily';
+    const initialView = location.state?.viewMode || 'monthly'; // Default to Monthly now
 
     // --- Custom Hook (Logic Layer) ---
     const { state, actions, modals } = useAdminSchedule(initialView);
 
+    // 2. Drill-down Handler (Month -> Weekly)
+    const handleDateSelect = (date) => {
+        actions.changeDay(date.getDate());
+
+        // Calculate Monday of that week
+        const d = new Date(date);
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(d.setDate(diff));
+
+        actions.setWeekStart(monday);
+        actions.setViewMode('weekly');
+    };
+
+    // 3. Drill-down Handler (Weekly -> Daily)
+    const handleDaySelect = (date) => {
+        actions.changeDay(date.getDate());
+        actions.setViewMode('daily'); // Switch to Daily View
+    };
+
     return (
         <div className="flex flex-col h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
 
-            {/* 1. Header & View Toggle */}
+            {/* 1. Header & Navigation */}
             <ScheduleHeader
                 viewMode={state.viewMode}
                 setViewMode={actions.setViewMode}
@@ -27,7 +48,7 @@ export default function Schedule() {
 
             <main className="flex-1 overflow-y-auto no-scrollbar px-6 pb-6 pt-4">
 
-                {/* 2. Daily View */}
+                {/* 2. Daily View (Deep Drill-down) */}
                 {state.viewMode === 'daily' && (
                     <ScheduleDailyView
                         currentDate={state.currentDate}
@@ -40,7 +61,22 @@ export default function Schedule() {
                     />
                 )}
 
-                {/* 3. Monthly View */}
+                {/* 3. Combined View (Weekly Detail) */}
+                {state.viewMode === 'weekly' && (
+                    <ScheduleCombinedView
+                        weekStart={state.weekStart}
+                        changeWeek={actions.changeWeek}
+                        setWeekStart={actions.setWeekStart}
+                        resetToStandardMonday={actions.resetToStandardMonday}
+                        schedules={state.schedules}
+                        openEditModal={actions.openEditModal}
+                        currentDate={state.currentDate}
+                        changeDay={actions.changeDay}
+                        onDaySelect={handleDaySelect}
+                    />
+                )}
+
+                {/* 4. Monthly View (Overview, Default) */}
                 {state.viewMode === 'monthly' && (
                     <ScheduleMonthlyView
                         currentDate={state.currentDate}
@@ -52,6 +88,7 @@ export default function Schedule() {
                         daysInMonth={state.daysInMonth}
                         firstDayOfMonth={state.firstDayOfMonth}
                         schedules={state.schedules}
+                        onDateSelect={handleDateSelect}
                     />
                 )}
             </main>
