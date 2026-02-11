@@ -5,6 +5,7 @@ import { updateMonthlyStats, updateDailySummary } from './attendance.utils';
 
 /**
  * Attendance Repository - Firestore operations for attendance
+ * @deprecated Use FirebaseAttendanceRepository.js instead. This repo writes to legacy 'attendance' collection.
  */
 export const attendanceRepo = {
     /**

@@ -154,32 +154,40 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                     });
 
                 } else {
-                    // ⚠️ Fallback: Legacy Query
-                    console.warn("⚠️ Fetching raw attendance (Legacy Mode)");
+                    // ⚠️ Fallback: Legacy Query -> NOW MIGRATED TO NEW LOGS
+                    // console.warn("⚠️ Fetching raw attendance (Legacy Mode)");
 
-                    const legacyQ = query(
-                        collection(db, "attendance"),
-                        where("companyId", "==", companyId),
-                        where("date", ">=", start),
-                        where("date", "<=", end)
+                    const logsQ = query(
+                        collection(db, "attendance_logs"), // ✅ Switch to new collection
+                        where("company_id", "==", companyId), // ✅ Use company_id
+                        where("clock_in", ">=", start), // ✅ Query by ISO string
+                        where("clock_in", "<=", end)
                     );
-                    const legacySnap = await getDocs(legacyQ);
-                    const legacyData = legacySnap.docs.map(d => d.data());
+                    const logsSnap = await getDocs(logsQ);
+                    const logsData = logsSnap.docs.map(d => {
+                        const data = d.data();
+                        return {
+                            ...data,
+                            // Map for Report Logic Compatibility
+                            userId: data.employee_id,
+                            createdAt: data.clock_in ? new Date(data.clock_in) : null, // Map clock_in -> createdAt (Date)
+                            clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                            status: data.status || 'on-time',
+                            lateMins: data.late_minutes || 0,
+                            // Original fields
+                            date: data.clock_in ? data.clock_in.split('T')[0] : ''
+                        };
+                    });
 
                     dailyStats = Array.from({ length: daysInMonth }, (_, i) => {
                         const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i + 1);
                         const dateStr = toISODate(d);
 
                         // ✅ FIX: Robust Date Comparison
-                        const attForDay = legacyData.filter(a => {
-                            // Support multiple date formats
-                            if (a.date === dateStr) return true;
-                            if (a.localTimestamp && a.localTimestamp.startsWith(dateStr)) return true;
-                            if (a.createdAt && a.createdAt.toDate) {
-                                const createdDate = toISODate(a.createdAt.toDate());
-                                return createdDate === dateStr;
-                            }
-                            return false;
+                        const attForDay = logsData.filter(a => {
+                            if (!a.createdAt) return false;
+                            const createdDate = toISODate(a.createdAt);
+                            return createdDate === dateStr;
                         });
 
                         const present = attForDay.length;
@@ -258,12 +266,21 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
             const { start, end } = getMonthRange(selectedMonth);
             const [usersSnap, attSnap, schSnap] = await Promise.all([
                 getDocs(query(collection(db, "users"), where("companyId", "==", companyId))),
-                getDocs(query(collection(db, "attendance"), where("companyId", "==", companyId), where("date", ">=", start), where("date", "<=", end))),
+                getDocs(query(collection(db, "attendance_logs"), where("company_id", "==", companyId), where("clock_in", ">=", start), where("clock_in", "<=", end))),
                 getDocs(query(collection(db, "schedules"), where("companyId", "==", companyId), where("date", ">=", start), where("date", "<=", end)))
             ]);
 
             const employees = usersSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.role === 'employee');
-            const attendances = attSnap.docs.map(d => d.data());
+            const attendances = attSnap.docs.map(d => {
+                const data = d.data();
+                return {
+                    ...data,
+                    userId: data.employee_id,
+                    createdAt: data.clock_in ? new Date(data.clock_in) : null,
+                    clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                    date: data.clock_in ? data.clock_in.split('T')[0] : ''
+                };
+            });
             const schedules = schSnap.docs.map(d => d.data());
 
             const analyzedList = employees.map(emp => {
@@ -442,16 +459,27 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
             }
 
             // 2. Fetch Attendance for that day
-            // Note: date stored as "YYYY-MM-DD" in attendance collection
+            // Note: date stored as "YYYY-MM-DD" in attendance collection -> converted to ISO range for logs
+            const startOfDay = `${dateStr}T00:00:00`;
+            const endOfDay = `${dateStr}T23:59:59`;
+
             const attQ = query(
-                collection(db, "attendance"),
-                where("companyId", "==", companyId),
-                where("date", "==", dateStr)
+                collection(db, "attendance_logs"),
+                where("company_id", "==", companyId),
+                where("clock_in", ">=", startOfDay),
+                where("clock_in", "<=", endOfDay)
             );
             const attSnap = await getDocs(attQ);
             const attendanceMap = {};
             attSnap.docs.forEach(d => {
-                attendanceMap[d.data().userId] = d.data();
+                const data = d.data();
+                attendanceMap[data.employee_id] = {
+                    ...data,
+                    userId: data.employee_id,
+                    createdAt: data.clock_in ? new Date(data.clock_in) : null,
+                    clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                    lateMins: data.late_minutes || 0
+                };
             });
 
             // 3. Merge
@@ -484,15 +512,27 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
         try {
             const { start, end } = getMonthRange(selectedMonth);
             // Fetch logs
+            // Fetch logs from attendance_logs
             const q = query(
-                collection(db, "attendance"),
-                where("companyId", "==", companyId),
-                where("userId", "==", employeeId),
-                where("date", ">=", start),
-                where("date", "<=", end)
+                collection(db, "attendance_logs"),
+                where("company_id", "==", companyId),
+                where("employee_id", "==", employeeId),
+                where("clock_in", ">=", start),
+                where("clock_in", "<=", end)
             );
             const snap = await getDocs(q);
-            const logs = snap.docs.map(d => d.data());
+            const logs = snap.docs.map(d => {
+                const data = d.data();
+                return {
+                    ...data,
+                    userId: data.employee_id,
+                    date: data.clock_in ? data.clock_in.split('T')[0] : '',
+                    createdAt: data.clock_in ? new Date(data.clock_in) : null,
+                    clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                    lateMins: data.late_minutes || 0,
+                    status: data.status || 'on-time'
+                };
+            });
 
             // Sort by date desc
             return logs.sort((a, b) => new Date(b.date) - new Date(a.date));

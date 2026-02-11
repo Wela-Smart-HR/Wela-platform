@@ -172,11 +172,14 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                         return {
                             id: doc.id,
                             ...data,
-                            // ✅ Map snake_case -> camelCase (UI Support) / Date Object
+                            // ✅ Map snake_case -> camelCase / Date Object
                             clockIn: data.clock_in ? new Date(data.clock_in) : null,
                             clockOut: data.clock_out ? new Date(data.clock_out) : null,
-                            userId: data.employee_id, // Map for backward compatibility
-                            // Keep original snake_case too if needed
+                            userId: data.employee_id,
+                            // ✅ New: clock_in_location (backward compat with old 'location' field)
+                            clockInLocation: data.clock_in_location || data.location || null,
+                            clockOutLocation: data.clock_out_location || null,
+                            workMinutes: data.work_minutes || 0,
                         };
                     });
 
@@ -433,6 +436,7 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
             // ===== Online → Call Domain Service =====
             const result = await attendanceService.clockIn(
                 userId,
+                companyId, // ✅ Pass companyId
                 attendanceData.location,
                 new Date(attendanceData.localTimestamp),
                 scheduleTime
@@ -544,7 +548,8 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 if (item.actionType === 'clock-in') {
                     // Pass specific timestamp for offline data
                     const shiftStart = item.shiftStart ? new Date(item.shiftStart) : null;
-                    await attendanceService.clockIn(item.userId, loc, ts, shiftStart);
+                    // Note: Offline data stores companyId in item
+                    await attendanceService.clockIn(item.userId, item.companyId, loc, ts, shiftStart);
                 } else {
                     await attendanceService.clockOut(item.userId, loc, ts);
                 }

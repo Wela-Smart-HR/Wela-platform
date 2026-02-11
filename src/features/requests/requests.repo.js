@@ -88,15 +88,43 @@ export const requestsRepo = {
      */
     async updateRequestStatus(requestId, status, adminNote = '') {
         try {
+            // 0. Pre-fetch Request to get Date (for Attendance Lookup)
+            // This is needed because transactions can't run queries for "find by date" easily
+            const requestRef = doc(db, 'requests', requestId);
+            const initialSnap = await getDoc(requestRef);
+            if (!initialSnap.exists()) throw new Error("Request not found");
+            const initialData = initialSnap.data();
+
+            // 1. Find Existing Attendance Log (if approving a Retro/Adjustment)
+            let existingLogId = null;
+            if (status === 'approved' && (initialData.type === 'retro' || initialData.type === 'adjustment' || initialData.type === 'unscheduled_alert')) {
+                const data = initialData.data || initialData;
+                const d = data.date || initialData.targetDate;
+                if (d) {
+                    // Query attendance_logs by Date Range
+                    const start = `${d}T00:00:00`;
+                    const end = `${d}T23:59:59`;
+                    const q = query(collection(db, 'attendance_logs'),
+                        where('employee_id', '==', initialData.userId),
+                        where('clock_in', '>=', start),
+                        where('clock_in', '<=', end),
+                        limit(1)
+                    );
+                    const snap = await getDocs(q);
+                    if (!snap.empty) existingLogId = snap.docs[0].id;
+                }
+            }
+
             await runTransaction(db, async (transaction) => {
                 // --- 1. READ PHASE (Reads MUST come before Writes) ---
-                const requestRef = doc(db, 'requests', requestId);
                 const requestSnap = await transaction.get(requestRef);
-
                 if (!requestSnap.exists()) throw new Error("Request not found");
                 const request = requestSnap.data();
 
-                // Pre-fetch User Data if approving (to avoid Read-after-Write error)
+                // Validation
+                if (request.status !== 'pending') throw new Error("Request is not pending");
+
+                // Pre-fetch User Data if approving
                 let userData = {};
                 if (status === 'approved') {
                     const userRef = doc(db, 'users', request.userId);
@@ -104,7 +132,15 @@ export const requestsRepo = {
                     userData = userSnap.exists() ? userSnap.data() : {};
                 }
 
-                // --- 2. WRITE PHASE (Only Writes/Updates allowed here) ---
+                // Pre-fetch Attendance Log if found in step 1
+                let logRef = null;
+                let logSnap = null;
+                if (existingLogId) {
+                    logRef = doc(db, 'attendance_logs', existingLogId);
+                    logSnap = await transaction.get(logRef);
+                }
+
+                // --- 2. WRITE PHASE ---
 
                 // 2.1 Update Request Status
                 transaction.update(requestRef, {
@@ -113,20 +149,14 @@ export const requestsRepo = {
                     processedAt: serverTimestamp()
                 });
 
-                // 2.2 If Approved -> Apply Changes to System
+                // 2.2 If Approved -> Apply Changes
                 if (status === 'approved') {
 
-                    // CASE A: Leave Request (ลา) -> Create Schedule (Leave) & Add Attendance Log
+                    // CASE A: Leave Request (Same as before, simplified)
                     if (request.type === 'leave') {
-                        // Handle both new (nested data) and old (flat) structure
                         const requestData = request.data || request;
                         const { startDate, endDate, leaveType, reason } = requestData;
-
-                        // Fallback for legacy date field if startDate is missing
                         const effectiveDate = startDate || request.date;
-
-                        // Add to Schedules (Mark as Leave)
-                        // Use Deterministic ID to Overwrite existing work schedule
                         const scheduleId = `${request.userId}_${effectiveDate}`;
                         const newScheduleRef = doc(db, 'schedules', scheduleId);
 
@@ -139,97 +169,85 @@ export const requestsRepo = {
                             leaveType: leaveType,
                             note: reason || adminNote,
                             createdAt: serverTimestamp(),
-                            // Use pre-fetched User Details
                             userName: userData.name || request.userName || 'Unknown',
                             userRole: userData.position || 'Employee',
                             userAvatar: userData.avatar || null
                         });
 
-                        // Zero-Cost: Update User Stats
-                        // Calculate days count
-                        let daysCount = 1;
-                        if (startDate && endDate) {
-                            const start = new Date(startDate);
-                            const end = new Date(endDate);
-                            const diffTime = Math.abs(end - start);
-                            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                            daysCount = diffDays + 1; // Inclusive
-                        }
-
-                        // updateMonthlyStats uses transaction.set (Write) - OK
+                        // Legacy Stats Update (Optional but keep for safety)
                         await updateMonthlyStats(transaction, request.userId, request.companyId, effectiveDate, {
-                            leaveCount: increment(daysCount)
-                        }, {
-                            type: 'leave',
-                            date: effectiveDate,
-                            reason: reason || leaveType
-                        });
+                            leaveCount: increment(1)
+                        }, { type: 'leave', date: effectiveDate });
                     }
 
-                    // CASE B: Retro/Time Adjustment (แก้เวลา) -> Insert Attendance Record
+                    // CASE B: Retro/Time Adjustment -> Write to attendance_logs
                     if (request.type === 'retro' || request.type === 'adjustment' || request.type === 'unscheduled_alert') {
                         const requestData = request.data || request;
                         const { date, timeIn, timeOut } = requestData;
                         const effectiveDate = date || request.targetDate;
 
+                        // Helper to create Date Object from YYYY-MM-DD + HH:mm
+                        const toISO = (d, t) => new Date(`${d}T${t}:00`).toISOString();
+
+                        const updateData = {
+                            status: 'adjusted',
+                            note: `Approved Request: ${adminNote}`,
+                            updated_at: new Date().toISOString()
+                        };
+
+                        if (timeIn) updateData.clock_in = toISO(effectiveDate, timeIn);
+                        if (timeOut) updateData.clock_out = toISO(effectiveDate, timeOut);
+
+                        if (logSnap && logSnap.exists()) {
+                            // Update Existing
+                            transaction.update(logRef, updateData);
+                        } else {
+                            // Create New
+                            const newLogRef = doc(collection(db, 'attendance_logs'));
+                            transaction.set(newLogRef, {
+                                employee_id: request.userId,
+                                company_id: request.companyId,
+                                clock_in: updateData.clock_in || `${effectiveDate}T00:00:00.000Z`,
+                                clock_out: updateData.clock_out || null,
+                                clock_in_location: { lat: 0, lng: 0, address: 'Manual Adjustment' },
+                                clock_out_location: null,
+                                status: 'adjusted',
+                                late_minutes: 0,
+                                work_minutes: 0,
+                                note: `Approved Request: ${adminNote}`,
+                                updated_at: new Date().toISOString()
+                            });
+                        }
+
+                        // --- Restore Zero-Cost Stats Updates ---
+                        // 1. Daily Summary
+                        const userSummary = {};
                         if (timeIn) {
-                            const dateTimeIn = new Date(`${effectiveDate}T${timeIn}:00`);
-                            const newAttInRef = doc(collection(db, 'attendance'));
-                            transaction.set(newAttInRef, {
-                                userId: request.userId,
-                                companyId: request.companyId,
-                                date: effectiveDate,
-                                localTimestamp: `${effectiveDate}T${timeIn}:00`,
-                                type: 'clock-in',
-                                status: 'adjusted',
-                                note: `Approved Request: ${adminNote}`,
-                                createdAt: Timestamp.fromDate(dateTimeIn)
-                            });
-
-                            const userSummary = {
-                                timeIn: `${effectiveDate}T${timeIn}:00`,
-                                status: 'adjusted',
-                                location: { lat: 0, lng: 0, name: 'Manual Adjustment' },
-                                timestamp: new Date().toISOString()
-                            };
-                            await updateDailySummary(transaction, request.companyId, effectiveDate, request.userId, userSummary);
-
-                            await updateMonthlyStats(transaction, request.userId, request.companyId, effectiveDate, {
-                                presentDays: increment(1),
-                                lateCount: increment(0)
-                            }, {
-                                type: 'clock-in (adjusted)',
-                                time: `${effectiveDate}T${timeIn}:00`,
-                                status: 'adjusted'
-                            });
+                            userSummary.timeIn = updateData.clock_in; // Use ISO
+                            userSummary.status = 'adjusted';
+                            userSummary.location = { name: 'Manual Adjustment' };
                         }
-
                         if (timeOut) {
-                            const dateTimeOut = new Date(`${effectiveDate}T${timeOut}:00`);
-                            const newAttOutRef = doc(collection(db, 'attendance'));
-                            transaction.set(newAttOutRef, {
-                                userId: request.userId,
-                                companyId: request.companyId,
-                                date: effectiveDate,
-                                localTimestamp: `${effectiveDate}T${timeOut}:00`,
-                                type: 'clock-out',
-                                status: 'adjusted',
-                                note: `Approved Request: ${adminNote}`,
-                                createdAt: Timestamp.fromDate(dateTimeOut)
-                            });
-
-                            const userSummary = {
-                                timeOut: `${effectiveDate}T${timeOut}:00`,
-                                status: 'completed'
-                            };
-                            await updateDailySummary(transaction, request.companyId, effectiveDate, request.userId, userSummary);
-
-                            await updateMonthlyStats(transaction, request.userId, request.companyId, effectiveDate, {}, {
-                                type: 'clock-out (adjusted)',
-                                time: `${effectiveDate}T${timeOut}:00`,
-                                status: 'completed'
-                            });
+                            userSummary.timeOut = updateData.clock_out; // Use ISO
+                            if (!userSummary.status) userSummary.status = 'completed';
                         }
+
+                        await updateDailySummary(transaction, request.companyId, effectiveDate, request.userId, userSummary);
+
+                        // 2. Monthly Stats
+                        const statsUpdates = {};
+                        if (timeIn) statsUpdates.presentDays = increment(0); // Don't double count if already present? Safe to increment 0 or 1?
+                        // Legacy logic incremented 1 for Present. If adjustment, maybe they were absent?
+                        // If we don't know, maybe safer to increment 1 if it's a NEW log.
+                        if (!logSnap || !logSnap.exists()) {
+                            statsUpdates.presentDays = increment(1);
+                        }
+
+                        await updateMonthlyStats(transaction, request.userId, request.companyId, effectiveDate, statsUpdates, {
+                            type: 'adjustment',
+                            date: effectiveDate,
+                            reason: adminNote
+                        });
                     }
                 }
             });

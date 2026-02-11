@@ -1,15 +1,14 @@
 import { AttendanceRepository } from '../application/repositories/AttendanceRepository.js';
 import { AttendanceLog } from '../domain/AttendanceLog.js';
+import { Location } from '../domain/value-objects/Location.js';
 import { DateUtils } from '../../../shared/kernel/DateUtils.js';
 
-// Import db จากไฟล์ config เดิมของคุณ
-// Import db จากไฟล์ config
 import { db } from '../../../shared/lib/firebase.js';
 import { doc, setDoc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 
 /**
  * Firebase Implementation
- * ตัวเชื่อมต่อ Firestore ของจริง
+ * ตัวเชื่อมต่อ Firestore — แปลงระหว่าง Domain Entity ↔ Firestore Document
  */
 export class FirebaseAttendanceRepository extends AttendanceRepository {
 
@@ -24,38 +23,47 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
     toPersistence(attendanceLog) {
         const data = attendanceLog.toPrimitives();
         return {
+            company_id: data.company_id,
             employee_id: data.employee_id,
-            clock_in: data.clock_in ? data.clock_in.toISOString() : null, // แปลง Date เป็น String สำหรับ Firestore
+            clock_in: data.clock_in ? data.clock_in.toISOString() : null,
             clock_out: data.clock_out ? data.clock_out.toISOString() : null,
-            location: data.location || null,
+            clock_in_location: data.clock_in_location || null,  // ✅ New field name
             clock_out_location: data.clock_out_location || null,
             status: data.status,
             late_minutes: data.late_minutes,
+            work_minutes: data.work_minutes || 0,               // ✅ New: persist calculated value
             updated_at: new Date().toISOString()
         };
     }
 
     /**
      * แปลงจาก Firestore Data -> Domain Entity
+     * รองรับ Backward Compatibility:
+     * - doc เก่าที่มี field "location" → map เป็น clockInLocation
+     * - doc ใหม่ที่มี "clock_in_location" → ใช้ตรงๆ
      */
     toDomain(docId, data) {
         if (!data) return null;
 
-        // สร้าง Domain Object ผ่าน Factory Method เพื่อ Validate ข้อมูล
+        // ✅ Backward Compat: doc เก่าใช้ "location", doc ใหม่ใช้ "clock_in_location"
+        const clockInLocRaw = data.clock_in_location || data.location || null;
+        const clockOutLocRaw = data.clock_out_location || null;
+
         const logOrError = AttendanceLog.create({
             id: docId,
+            companyId: data.company_id,
             employeeId: data.employee_id,
             clockIn: data.clock_in ? new Date(data.clock_in) : null,
             clockOut: data.clock_out ? new Date(data.clock_out) : null,
-            location: data.location || null,
-            clockOutLocation: data.clock_out_location || null,
+            clockInLocation: clockInLocRaw ? Location.fromPersistence(clockInLocRaw) : null,
+            clockOutLocation: clockOutLocRaw ? Location.fromPersistence(clockOutLocRaw) : null,
             status: data.status,
             lateMinutes: data.late_minutes
         });
 
         if (logOrError.isFailure) {
             console.error(`[Data Corruption] Log ID ${docId} is invalid:`, logOrError.error);
-            return null; // หรือ throw error ตามนโยบาย
+            return null;
         }
 
         return logOrError.getValue();
@@ -65,7 +73,6 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
 
     async save(attendanceLog) {
         const data = this.toPersistence(attendanceLog);
-        // ใช้ setDoc เพื่อระบุ ID เอง (UUID ที่เราสร้าง) หรือทับข้อมูลเดิม
         await setDoc(doc(db, this.collectionName, attendanceLog.id), data);
     }
 
@@ -78,10 +85,6 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
     }
 
     async findLatestByEmployee(employeeId, date) {
-        // หาใบลงเวลาของ "Business Date" นั้นๆ
-        // หมายเหตุ: Query นี้อาจต้องทำ Composite Index ใน Firebase (employee_id + clock_in)
-
-        // เพื่อความง่ายและแม่นยำในกะข้ามคืน เราจะดึงช่วงเวลามาเช็ค
         const startOfDay = DateUtils.getBusinessDate(date);
         const endOfDay = new Date(startOfDay);
         endOfDay.setHours(startOfDay.getHours() + 24);
@@ -117,13 +120,11 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
 
             const snapshot = await getDocs(q);
 
-            // แปลงข้อมูลกลับเป็น Domain Primitives เพื่อส่งให้ UI
             return snapshot.docs.map(doc => {
                 const data = doc.data();
                 return {
                     id: doc.id,
                     ...data,
-                    // แปลง timestamp string กลับเป็น Date object ถ้าจำเป็น
                     clock_in: data.clock_in ? new Date(data.clock_in) : null,
                     clock_out: data.clock_out ? new Date(data.clock_out) : null
                 };

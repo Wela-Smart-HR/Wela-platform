@@ -1,4 +1,5 @@
 import { AttendanceLog } from '../domain/AttendanceLog.js';
+import { Location } from '../domain/value-objects/Location.js';
 import { Result } from '../../../shared/kernel/Result.js';
 import { DateUtils } from '../../../shared/kernel/DateUtils.js';
 
@@ -17,11 +18,12 @@ export class AttendanceService {
     /**
      * Use Case: พนักงานกดเข้างาน
      * @param {string} employeeId
-     * @param {Object} location
+     * @param {string} companyId
+     * @param {Object} locationData - { lat, lng, address }
      * @param {Date} timestamp
      * @param {Date} shiftStart (Optional) เวลาเริ่มงานสำหรับคำนวณสาย
      */
-    async clockIn(employeeId, location, timestamp = DateUtils.now(), shiftStart = null) {
+    async clockIn(employeeId, companyId, locationData, timestamp = DateUtils.now(), shiftStart = null) {
         try {
             // 1. เช็คก่อนว่าวันนี้กดไปหรือยัง? (Prevent Double Clock-in)
             // Note: เช็คจาก timestamp ที่ส่งมา (เผื่อเป็น offline data ของเมื่อวาน)
@@ -41,11 +43,18 @@ export class AttendanceService {
                 if (lateMinutes > 0) status = 'late';
             }
 
-            // 2. สร้าง Domain Entity (ใช้ Factory Method ที่เราทำไว้)
+            // 2. Validate Location ผ่าน Value Object
+            const locationOrError = Location.create(locationData);
+            if (locationOrError.isFailure) {
+                return Result.fail(`GPS Error: ${locationOrError.error}`);
+            }
+
+            // 3. สร้าง Domain Entity
             const logOrError = AttendanceLog.create({
+                companyId: companyId,
                 employeeId: employeeId,
                 clockIn: timestamp,
-                location: location,
+                clockInLocation: locationOrError.getValue(),
                 status: status,
                 lateMinutes: lateMinutes
             });
@@ -69,8 +78,11 @@ export class AttendanceService {
 
     /**
      * Use Case: พนักงานกดออกงาน
+     * @param {string} employeeId
+     * @param {Object} locationData - { lat, lng, address }
+     * @param {Date} timestamp
      */
-    async clockOut(employeeId, location, timestamp = DateUtils.now()) {
+    async clockOut(employeeId, locationData, timestamp = DateUtils.now()) {
         try {
             // 1. หาใบลงเวลาใบเดิมของวันนี้
             const existingLog = await this.repo.findLatestByEmployee(employeeId, timestamp);
@@ -83,22 +95,25 @@ export class AttendanceService {
                 return Result.fail("คุณได้ลงเวลาออกงานไปแล้ว");
             }
 
-            // 2. สั่ง Domain ให้ Clock Out (คำนวณเวลาอัตโนมัติในตัว)
-            const updatedLogOrError = existingLog.markClockOut(timestamp, location);
+            // 2. Validate Location
+            const locationOrError = Location.create(locationData);
+            if (locationOrError.isFailure) {
+                return Result.fail(`GPS Error: ${locationOrError.error}`);
+            }
+
+            // 3. สั่ง Domain ให้ Clock Out
+            const updatedLogOrError = existingLog.markClockOut(timestamp, locationOrError.getValue());
 
             if (updatedLogOrError.isFailure) {
                 return Result.fail(updatedLogOrError.error);
             }
             const finalLog = updatedLogOrError.getValue();
 
-            // 3. บันทึกทับใบเดิม
+            // 4. บันทึกทับใบเดิม
             await this.repo.save(finalLog);
 
-            // 4. คืนค่าพร้อมระยะเวลาทำงาน (Work Duration)
-            return Result.ok({
-                ...finalLog.toPrimitives(),
-                workMinutes: finalLog.getWorkDurationMinutes()
-            });
+            // 5. คืนค่า (workMinutes อยู่ใน toPrimitives แล้ว)
+            return Result.ok(finalLog.toPrimitives());
 
         } catch (error) {
             console.error(error);

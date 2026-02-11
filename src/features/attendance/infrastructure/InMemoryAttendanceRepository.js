@@ -24,12 +24,15 @@ export class InMemoryAttendanceRepository extends AttendanceRepository {
     }
 
     async findLatestByEmployee(employeeId, date) {
-        // จำลองการ Query: select * from logs where employee_id = ? and date = ?
+        // จำลองการ Query: select * from logs where employee_id = ? and business_date = ?
         const logs = Array.from(this.db.values());
+
+        // ✅ ใช้ Business Date เปรียบเทียบกับ date ที่ส่งมา (ไม่ใช่ isToday)
+        const targetBusinessDate = DateUtils.getBusinessDate(date);
 
         const todayLog = logs.find(log =>
             log.employeeId === employeeId &&
-            DateUtils.isToday(log.clockIn) // ใช้ DateUtils เช็คว่าเป็นวันนี้ไหม
+            DateUtils.getBusinessDate(log.clockIn).getTime() === targetBusinessDate.getTime()
         );
 
         return todayLog || null;
