@@ -451,38 +451,64 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                 const uniqueUsersMap = new Map();
                 usersSnap.docs.forEach(d => {
                     const data = d.data();
-                    if (data.active === false) return; // Skip deleted users
+                    if (data.active === false) return;
                     if (!uniqueUsersMap.has(d.id)) uniqueUsersMap.set(d.id, { id: d.id, ...data });
                 });
                 employees = Array.from(uniqueUsersMap.values());
                 setEmployeesCache(employees);
             }
 
-            // 2. Fetch Attendance for that day
-            // Note: date stored as "YYYY-MM-DD" in attendance collection -> converted to ISO range for logs
+            // 2. Fetch from BOTH sources in parallel
             const startOfDay = `${dateStr}T00:00:00`;
             const endOfDay = `${dateStr}T23:59:59`;
 
-            const attQ = query(
-                collection(db, "attendance_logs"),
-                where("company_id", "==", companyId),
-                where("clock_in", ">=", startOfDay),
-                where("clock_in", "<=", endOfDay)
-            );
-            const attSnap = await getDocs(attQ);
+            const [dailySummarySnap, logsSnap] = await Promise.all([
+                // Source A: daily_attendance (legacy zero-cost stats) — ใช้ doc ID = dateStr
+                getDocs(query(
+                    collection(db, 'companies', companyId, 'daily_attendance'),
+                    where('date', '==', dateStr)
+                )).catch(() => ({ docs: [] })),
+
+                // Source B: attendance_logs (new domain) — range query
+                getDocs(query(
+                    collection(db, "attendance_logs"),
+                    where("company_id", "==", companyId),
+                    where("clock_in", ">=", startOfDay),
+                    where("clock_in", "<=", endOfDay)
+                )).catch(() => ({ docs: [] }))
+            ]);
+
+            // 3. Build attendanceMap from BOTH sources
             const attendanceMap = {};
-            attSnap.docs.forEach(d => {
+
+            // Source A: daily_attendance → attendance sub-map { userId: { timeIn, status, ... } }
+            dailySummarySnap.docs.forEach(d => {
+                const data = d.data();
+                const attMap = data.attendance || {};
+                Object.entries(attMap).forEach(([userId, attData]) => {
+                    attendanceMap[userId] = {
+                        userId,
+                        createdAt: attData.timeIn ? new Date(attData.timeIn) : null,
+                        clockOut: attData.timeOut ? new Date(attData.timeOut) : null,
+                        status: attData.status || 'on-time',
+                        lateMins: attData.lateMins || attData.lateMinutes || 0
+                    };
+                });
+            });
+
+            // Source B: attendance_logs (overrides daily_attendance if both exist)
+            logsSnap.docs.forEach(d => {
                 const data = d.data();
                 attendanceMap[data.employee_id] = {
-                    ...data,
                     userId: data.employee_id,
                     createdAt: data.clock_in ? new Date(data.clock_in) : null,
                     clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                    status: data.status || 'on-time',
                     lateMins: data.late_minutes || 0
                 };
             });
 
-            // 3. Merge
+            // 4. Merge with Employee List
             const dailyDetails = employees.map(emp => {
                 const att = attendanceMap[emp.id];
                 return {
@@ -492,7 +518,7 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                     hasAttendance: !!att,
                     clockIn: att?.createdAt ? (att.createdAt.toDate ? att.createdAt.toDate() : new Date(att.createdAt)) : null,
                     clockOut: att?.clockOut ? (att.clockOut.toDate ? att.clockOut.toDate() : new Date(att.clockOut)) : null,
-                    status: att?.status || 'absent', // late, ontime
+                    status: att?.status || 'absent',
                     lateMins: att?.lateMins || 0
                 };
             });
