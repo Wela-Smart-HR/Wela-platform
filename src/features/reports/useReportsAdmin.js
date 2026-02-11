@@ -154,32 +154,40 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                     });
 
                 } else {
-                    // ⚠️ Fallback: Legacy Query
-                    console.warn("⚠️ Fetching raw attendance (Legacy Mode)");
+                    // ⚠️ Fallback: Legacy Query -> NOW MIGRATED TO NEW LOGS
+                    // console.warn("⚠️ Fetching raw attendance (Legacy Mode)");
 
-                    const legacyQ = query(
-                        collection(db, "attendance"),
-                        where("companyId", "==", companyId),
-                        where("date", ">=", start),
-                        where("date", "<=", end)
+                    const logsQ = query(
+                        collection(db, "attendance_logs"), // ✅ Switch to new collection
+                        where("company_id", "==", companyId), // ✅ Use company_id
+                        where("clock_in", ">=", start), // ✅ Query by ISO string
+                        where("clock_in", "<=", end)
                     );
-                    const legacySnap = await getDocs(legacyQ);
-                    const legacyData = legacySnap.docs.map(d => d.data());
+                    const logsSnap = await getDocs(logsQ);
+                    const logsData = logsSnap.docs.map(d => {
+                        const data = d.data();
+                        return {
+                            ...data,
+                            // Map for Report Logic Compatibility
+                            userId: data.employee_id,
+                            createdAt: data.clock_in ? new Date(data.clock_in) : null, // Map clock_in -> createdAt (Date)
+                            clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                            status: data.status || 'on-time',
+                            lateMins: data.late_minutes || 0,
+                            // Original fields
+                            date: data.clock_in ? data.clock_in.split('T')[0] : ''
+                        };
+                    });
 
                     dailyStats = Array.from({ length: daysInMonth }, (_, i) => {
                         const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i + 1);
                         const dateStr = toISODate(d);
 
                         // ✅ FIX: Robust Date Comparison
-                        const attForDay = legacyData.filter(a => {
-                            // Support multiple date formats
-                            if (a.date === dateStr) return true;
-                            if (a.localTimestamp && a.localTimestamp.startsWith(dateStr)) return true;
-                            if (a.createdAt && a.createdAt.toDate) {
-                                const createdDate = toISODate(a.createdAt.toDate());
-                                return createdDate === dateStr;
-                            }
-                            return false;
+                        const attForDay = logsData.filter(a => {
+                            if (!a.createdAt) return false;
+                            const createdDate = toISODate(a.createdAt);
+                            return createdDate === dateStr;
                         });
 
                         const present = attForDay.length;
@@ -258,12 +266,21 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
             const { start, end } = getMonthRange(selectedMonth);
             const [usersSnap, attSnap, schSnap] = await Promise.all([
                 getDocs(query(collection(db, "users"), where("companyId", "==", companyId))),
-                getDocs(query(collection(db, "attendance"), where("companyId", "==", companyId), where("date", ">=", start), where("date", "<=", end))),
+                getDocs(query(collection(db, "attendance_logs"), where("company_id", "==", companyId), where("clock_in", ">=", start), where("clock_in", "<=", end))),
                 getDocs(query(collection(db, "schedules"), where("companyId", "==", companyId), where("date", ">=", start), where("date", "<=", end)))
             ]);
 
             const employees = usersSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.role === 'employee');
-            const attendances = attSnap.docs.map(d => d.data());
+            const attendances = attSnap.docs.map(d => {
+                const data = d.data();
+                return {
+                    ...data,
+                    userId: data.employee_id,
+                    createdAt: data.clock_in ? new Date(data.clock_in) : null,
+                    clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                    date: data.clock_in ? data.clock_in.split('T')[0] : ''
+                };
+            });
             const schedules = schSnap.docs.map(d => d.data());
 
             const analyzedList = employees.map(emp => {
@@ -434,27 +451,64 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                 const uniqueUsersMap = new Map();
                 usersSnap.docs.forEach(d => {
                     const data = d.data();
-                    if (data.active === false) return; // Skip deleted users
+                    if (data.active === false) return;
                     if (!uniqueUsersMap.has(d.id)) uniqueUsersMap.set(d.id, { id: d.id, ...data });
                 });
                 employees = Array.from(uniqueUsersMap.values());
                 setEmployeesCache(employees);
             }
 
-            // 2. Fetch Attendance for that day
-            // Note: date stored as "YYYY-MM-DD" in attendance collection
-            const attQ = query(
-                collection(db, "attendance"),
-                where("companyId", "==", companyId),
-                where("date", "==", dateStr)
-            );
-            const attSnap = await getDocs(attQ);
+            // 2. Fetch from BOTH sources in parallel
+            const startOfDay = `${dateStr}T00:00:00`;
+            const endOfDay = `${dateStr}T23:59:59`;
+
+            const [dailySummarySnap, logsSnap] = await Promise.all([
+                // Source A: daily_attendance (legacy zero-cost stats) — ใช้ doc ID = dateStr
+                getDocs(query(
+                    collection(db, 'companies', companyId, 'daily_attendance'),
+                    where('date', '==', dateStr)
+                )).catch(() => ({ docs: [] })),
+
+                // Source B: attendance_logs (new domain) — range query
+                getDocs(query(
+                    collection(db, "attendance_logs"),
+                    where("company_id", "==", companyId),
+                    where("clock_in", ">=", startOfDay),
+                    where("clock_in", "<=", endOfDay)
+                )).catch(() => ({ docs: [] }))
+            ]);
+
+            // 3. Build attendanceMap from BOTH sources
             const attendanceMap = {};
-            attSnap.docs.forEach(d => {
-                attendanceMap[d.data().userId] = d.data();
+
+            // Source A: daily_attendance → attendance sub-map { userId: { timeIn, status, ... } }
+            dailySummarySnap.docs.forEach(d => {
+                const data = d.data();
+                const attMap = data.attendance || {};
+                Object.entries(attMap).forEach(([userId, attData]) => {
+                    attendanceMap[userId] = {
+                        userId,
+                        createdAt: attData.timeIn ? new Date(attData.timeIn) : null,
+                        clockOut: attData.timeOut ? new Date(attData.timeOut) : null,
+                        status: attData.status || 'on-time',
+                        lateMins: attData.lateMins || attData.lateMinutes || 0
+                    };
+                });
             });
 
-            // 3. Merge
+            // Source B: attendance_logs (overrides daily_attendance if both exist)
+            logsSnap.docs.forEach(d => {
+                const data = d.data();
+                attendanceMap[data.employee_id] = {
+                    userId: data.employee_id,
+                    createdAt: data.clock_in ? new Date(data.clock_in) : null,
+                    clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                    status: data.status || 'on-time',
+                    lateMins: data.late_minutes || 0
+                };
+            });
+
+            // 4. Merge with Employee List
             const dailyDetails = employees.map(emp => {
                 const att = attendanceMap[emp.id];
                 return {
@@ -464,7 +518,7 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                     hasAttendance: !!att,
                     clockIn: att?.createdAt ? (att.createdAt.toDate ? att.createdAt.toDate() : new Date(att.createdAt)) : null,
                     clockOut: att?.clockOut ? (att.clockOut.toDate ? att.clockOut.toDate() : new Date(att.clockOut)) : null,
-                    status: att?.status || 'absent', // late, ontime
+                    status: att?.status || 'absent',
                     lateMins: att?.lateMins || 0
                 };
             });
@@ -484,15 +538,27 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
         try {
             const { start, end } = getMonthRange(selectedMonth);
             // Fetch logs
+            // Fetch logs from attendance_logs
             const q = query(
-                collection(db, "attendance"),
-                where("companyId", "==", companyId),
-                where("userId", "==", employeeId),
-                where("date", ">=", start),
-                where("date", "<=", end)
+                collection(db, "attendance_logs"),
+                where("company_id", "==", companyId),
+                where("employee_id", "==", employeeId),
+                where("clock_in", ">=", start),
+                where("clock_in", "<=", end)
             );
             const snap = await getDocs(q);
-            const logs = snap.docs.map(d => d.data());
+            const logs = snap.docs.map(d => {
+                const data = d.data();
+                return {
+                    ...data,
+                    userId: data.employee_id,
+                    date: data.clock_in ? data.clock_in.split('T')[0] : '',
+                    createdAt: data.clock_in ? new Date(data.clock_in) : null,
+                    clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                    lateMins: data.late_minutes || 0,
+                    status: data.status || 'on-time'
+                };
+            });
 
             // Sort by date desc
             return logs.sort((a, b) => new Date(b.date) - new Date(a.date));

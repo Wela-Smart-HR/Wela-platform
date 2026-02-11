@@ -3,10 +3,15 @@ import { db } from '@/shared/lib/firebase';
 
 /**
  * Settings Repository - Firestore operations for company settings
+ * 
+ * ⚠️ Architecture Decision: ทุกค่าถูก flatten ลง company doc เดียว
+ *    เพื่อให้ ConfigContext (onSnapshot) อ่านได้ครบทุกค่า
+ *    ไม่แยกเก็บใน sub-docs อีก (greeting/deduction)
  */
 export const settingsRepo = {
     /**
      * Get company settings
+     * อ่านจาก company doc หลัก + backward compat สำหรับ legacy sub-docs
      * @param {string} companyId 
      * @returns {Promise<Object|null>}
      */
@@ -17,15 +22,36 @@ export const settingsRepo = {
 
             if (!snap.exists()) return null;
 
-            // Also fetch greeting and deduction subcollections
-            const greetingSnap = await getDoc(doc(db, 'companies', companyId, 'settings', 'greeting'));
-            const deductionSnap = await getDoc(doc(db, 'companies', companyId, 'settings', 'deduction'));
+            const data = snap.data();
+
+            // ✅ Backward Compat: ถ้ายังไม่มี greeting/deduction ใน main doc
+            //    → ลองอ่านจาก legacy sub-docs (migration path)
+            let greeting = data.greeting || null;
+            let deduction = data.deduction || null;
+
+            if (!greeting) {
+                try {
+                    const greetingSnap = await getDoc(doc(db, 'companies', companyId, 'settings', 'greeting'));
+                    if (greetingSnap.exists()) {
+                        greeting = greetingSnap.data();
+                    }
+                } catch { /* ignore - sub-doc may not exist */ }
+            }
+
+            if (!deduction) {
+                try {
+                    const deductionSnap = await getDoc(doc(db, 'companies', companyId, 'settings', 'deduction'));
+                    if (deductionSnap.exists()) {
+                        deduction = deductionSnap.data();
+                    }
+                } catch { /* ignore - sub-doc may not exist */ }
+            }
 
             return {
                 id: snap.id,
-                ...snap.data(),
-                greeting: greetingSnap.exists() ? greetingSnap.data() : {},
-                deduction: deductionSnap.exists() ? deductionSnap.data() : {}
+                ...data,
+                greeting: greeting || {},
+                deduction: deduction || {}
             };
         } catch (error) {
             console.error('Error getting company settings:', error);
@@ -34,7 +60,7 @@ export const settingsRepo = {
     },
 
     /**
-     * Update company settings
+     * Update company settings (partial update)
      * @param {string} companyId 
      * @param {Object} settings 
      * @returns {Promise<void>}
@@ -52,41 +78,49 @@ export const settingsRepo = {
     },
 
     /**
-     * Save all settings to 3 collections at once
+     * Save ALL settings into the main company doc (single document write)
+     * 
+     * ⚠️ ทุกค่าถูกบันทึกลง companies/{companyId} เท่านั้น
+     *    ConfigContext (onSnapshot) จะได้รับค่าทั้งหมดทันที
+     * 
      * @param {string} companyId 
      * @param {Object} storeConfig - Full config from Settings page
      * @returns {Promise<void>}
      */
     async saveAllSettings(companyId, storeConfig) {
         try {
-            // 1. Save main company data
             await setDoc(doc(db, 'companies', companyId), {
-                name: storeConfig.name,
-                taxId: storeConfig.taxId,
+                // === ข้อมูลหลักบริษัท ===
+                name: storeConfig.name || '',
+                taxId: storeConfig.taxId || '',
+
+                // === GPS & Location ===
                 settings: {
-                    location: storeConfig.location,
-                    radius: Number(storeConfig.radius),
-                    gpsEnabled: storeConfig.gpsEnabled
+                    location: storeConfig.location || null,
+                    radius: Number(storeConfig.radius) || 350,
+                    gpsEnabled: storeConfig.gpsEnabled ?? true
                 },
-                shifts: storeConfig.shifts,
-                otTypes: storeConfig.otTypes,
+
+                // === กะทำงาน & OT ===
+                shifts: storeConfig.shifts || [],
+                otTypes: storeConfig.otTypes || [],
+
+                // === ✅ ข้อความทักทาย (เดิมอยู่ sub-doc → ย้ายมา main doc) ===
+                greeting: {
+                    onTimeMessage: storeConfig.onTimeMessage || '',
+                    lateMessage: storeConfig.lateMessage || ''
+                },
+
+                // === ✅ กฎหักเงิน (เดิมอยู่ sub-doc → ย้ายมา main doc) ===
+                deduction: {
+                    gracePeriod: Number(storeConfig.gracePeriod) || 0,
+                    deductionPerMinute: Number(storeConfig.deductionPerMinute) || 0,
+                    maxDeduction: Number(storeConfig.maxDeduction) || 0
+                },
+
                 updatedAt: serverTimestamp()
             }, { merge: true });
 
-            // 2. Save greeting settings
-            await setDoc(doc(db, 'companies', companyId, 'settings', 'greeting'), {
-                onTimeMessage: storeConfig.onTimeMessage || '',
-                lateMessage: storeConfig.lateMessage || '',
-                updatedAt: serverTimestamp()
-            }, { merge: true });
-
-            // 3. Save deduction settings
-            await setDoc(doc(db, 'companies', companyId, 'settings', 'deduction'), {
-                gracePeriod: Number(storeConfig.gracePeriod) || 0,
-                deductionPerMinute: Number(storeConfig.deductionPerMinute) || 0,
-                maxDeduction: Number(storeConfig.maxDeduction) || 0,
-                updatedAt: serverTimestamp()
-            }, { merge: true });
         } catch (error) {
             console.error('Error saving all settings:', error);
             throw error;
@@ -102,7 +136,7 @@ export const settingsRepo = {
     async updateCompanyLocation(companyId, location) {
         try {
             await updateDoc(doc(db, 'companies', companyId), {
-                location,
+                'settings.location': location,
                 updatedAt: serverTimestamp()
             });
         } catch (error) {

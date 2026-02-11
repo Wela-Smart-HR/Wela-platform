@@ -45,7 +45,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { gpsService } from './gps.service';
 import { offlineService } from './offline.service';
 import { useGlobalConfig } from '../../contexts/ConfigContext';
-import { attendanceRepo } from './attendance.repo';
+import { attendanceService, attendanceRepo } from '../../di/attendanceDI.js';
+import { DateUtils } from '../../shared/kernel/DateUtils.js';
 
 // ... (other imports)
 
@@ -157,22 +158,114 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 const startOfMonthStr = `${year}-${month}-01`;
                 const endOfMonthStr = `${year}-${month}-${lastDay}`;
 
-                // === Attendance Logs (Real-time) ===
+                // === 1. Attendance Logs (New System) ===
+                let newLogs = [];
+                let legacyLogs = [];
+
+                const updateMergedLogs = () => {
+                    // Create a Map to merge duplicates by Date (YYYY-MM-DD)
+                    // Prefer "New Logs" (attendance_logs) over Legacy
+                    const mergedMap = new Map();
+
+                    // Process Legacy First (Base Layer)
+                    legacyLogs.forEach(log => {
+                        if (!log.clockIn) return;
+                        const dateKey = log.clockIn.toDateString();
+                        mergedMap.set(dateKey, log);
+                    });
+
+                    // Process New Logs (Overlay - Higher Priority)
+                    newLogs.forEach(log => {
+                        if (!log.clockIn) return;
+                        const dateKey = log.clockIn.toDateString();
+                        mergedMap.set(dateKey, log);
+                    });
+
+                    // Sort by Date Descending
+                    const finalLogs = Array.from(mergedMap.values())
+                        .sort((a, b) => b.clockIn - a.clockIn);
+
+                    setAttendanceLogs(finalLogs);
+                };
+
                 const qAtt = query(
-                    collection(db, "attendance"),
-                    where("userId", "==", userId),
-                    where("createdAt", ">=", startOfMonthDate),
-                    orderBy("createdAt", "desc")
+                    collection(db, "attendance_logs"),
+                    where("employee_id", "==", userId),
+                    where("clock_in", ">=", startOfMonthStr),
+                    orderBy("clock_in", "desc")
                 );
 
                 const unsubAtt = onSnapshot(qAtt, (snapshot) => {
-                    const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    const filtered = docs.filter(d => {
-                        const date = d.createdAt.toDate();
-                        return date.getMonth() === currentMonth.getMonth() &&
-                            date.getFullYear() === currentMonth.getFullYear();
+                    newLogs = snapshot.docs.map(doc => {
+                        const data = doc.data();
+                        return {
+                            id: doc.id,
+                            ...data,
+                            clockIn: data.clock_in ? new Date(data.clock_in) : null,
+                            clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                            userId: data.employee_id,
+                            clockInLocation: data.clock_in_location || data.location || null,
+                            clockOutLocation: data.clock_out_location || null,
+                            workMinutes: data.work_minutes || 0,
+                            date: data.clock_in ? new Date(data.clock_in) : new Date(), // ✅ Add date field
+                        };
                     });
-                    setAttendanceLogs(filtered);
+                    updateMergedLogs();
+                });
+
+                // === 2. Attendance (Legacy System Fallback) ===
+                // Helper to get End of Month Date
+                const endOfMonthDate = new Date(year, currentMonth.getMonth() + 1, 0, 23, 59, 59);
+
+                const qLegacy = query(
+                    collection(db, "attendance"),
+                    where("userId", "==", userId),
+                    where("createdAt", ">=", startOfMonthDate),
+                    where("createdAt", "<=", endOfMonthDate),
+                    orderBy("createdAt", "asc")
+                );
+
+                const unsubLegacy = onSnapshot(qLegacy, (snapshot) => {
+                    // Group Legacy Docs (Individual Events) by Date
+                    const groups = {};
+                    snapshot.docs.forEach(doc => {
+                        const d = doc.data();
+                        // Deduce Date Key
+                        let dateKey = d.date;
+                        if (!dateKey && d.createdAt) {
+                            const dateObj = d.createdAt.toDate();
+                            const y = dateObj.getFullYear();
+                            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+                            const day = String(dateObj.getDate()).padStart(2, '0');
+                            dateKey = `${y}-${m}-${day}`;
+                        }
+                        if (!dateKey) return;
+
+                        if (!groups[dateKey]) {
+                            groups[dateKey] = {
+                                id: doc.id,
+                                userId: d.userId,
+                                status: 'on-time' // default
+                            };
+                        }
+
+                        if (d.type === 'clock-in' || d.actionType === 'clock-in') {
+                            groups[dateKey].clockIn = d.createdAt?.toDate() || new Date(d.localTimestamp);
+                            groups[dateKey].clockInLocation = d.location;
+                            groups[dateKey].status = d.status || 'on-time';
+                        } else if (d.type === 'clock-out' || d.actionType === 'clock-out') {
+                            groups[dateKey].clockOut = d.createdAt?.toDate() || new Date(d.localTimestamp);
+                            groups[dateKey].clockOutLocation = d.location;
+                        }
+                    });
+
+                    legacyLogs = Object.values(groups).map(g => ({
+                        ...g,
+                        hasRecord: true,
+                        date: g.clockIn || new Date() // Helper for sorting
+                    }));
+
+                    updateMergedLogs();
                 });
 
                 // === Schedules (Real-time) ===
@@ -196,6 +289,7 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
 
                 return () => {
                     unsubAtt();
+                    unsubLegacy();
                     unsubSch();
                 };
             } catch (err) {
@@ -351,8 +445,9 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
         if (!userId) return;
 
         try {
-            const record = await attendanceRepo.getTodayRecord(userId);
-            setTodayRecord(record);
+            // ✅ ใช้ Repo ใหม่ดึงข้อมูล
+            const logDomain = await attendanceRepo.findLatestByEmployee(userId, new Date());
+            setTodayRecord(logDomain ? logDomain.toPrimitives() : null);
         } catch (err) {
             console.error('[useMyAttendance] Load today error:', err);
         }
@@ -380,22 +475,12 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 throw new Error(`คุณอยู่นอกรัศมีบริษัท (${distance} เมตร)`);
             }
 
-            // คำนวณว่าสายหรือไม่
-            let isLate = false;
-            let lateMins = 0;
-            const now = new Date();
-
+            // คำนวณเวลาเข้างานตามกะ (รวม Grace Period)
+            let scheduleTime = null;
             if (options.scheduleData?.startTime) {
                 const [sh, sm] = options.scheduleData.startTime.split(':').map(Number);
-                const scheduleTime = new Date();
+                scheduleTime = new Date();
                 scheduleTime.setHours(sh, sm + (companyConfig?.deduction?.gracePeriod || 0), 0, 0);
-
-                if (now > scheduleTime) {
-                    isLate = true;
-                    // Calculate late minutes
-                    const diffMs = now - scheduleTime;
-                    lateMins = Math.floor(diffMs / 60000);
-                }
             }
 
             // เตรียมข้อมูล
@@ -403,13 +488,13 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 companyId,
                 userId,
                 actionType: 'clock-in',
-                status: isLate ? 'late' : 'on-time',
-                lateMins: isLate ? lateMins : 0, // ✅ Save late minutes
                 location: {
                     lat: location.lat,
-                    lng: location.lng
+                    lng: location.lng,
+                    address: location.address
                 },
-                localTimestamp: now.toISOString()
+                localTimestamp: new Date().toISOString(),
+                shiftStart: scheduleTime ? scheduleTime.toISOString() : null // ✅ เก็บไว้ใช้ทั้ง Online/Offline
             };
 
             // ===== ถ้า Offline → เก็บไว้ใน Queue =====
@@ -418,19 +503,34 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 setTodayRecord({ ...attendanceData, _offline: true });
                 return {
                     success: true,
-                    isLate,
+                    isLate: false,
                     message: 'บันทึกไว้ในเครื่อง จะอัปโหลดเมื่อมีเน็ต',
                     offline: true
                 };
             }
 
-            // ===== Online → บันทึกเลย =====
-            await attendanceRepo.clockIn(attendanceData);
+            // ===== Online → Call Domain Service =====
+            const result = await attendanceService.clockIn(
+                userId,
+                companyId, // ✅ Pass companyId
+                attendanceData.location,
+                new Date(attendanceData.localTimestamp),
+                scheduleTime
+            );
+
+            if (result.isFailure) {
+                throw new Error(result.error);
+            }
+
             await loadTodayRecord();
+
+            // Check resulting status for UI message
+            const newLog = result.getValue();
+            const isLate = newLog.status === 'late';
 
             return {
                 success: true,
-                isLate,
+                isLate: isLate,
                 message: isLate
                     ? (companyConfig?.greeting?.late || 'มาสายนะ')
                     : (companyConfig?.greeting?.onTime || 'บันทึกสำเร็จ!')
@@ -465,10 +565,10 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 companyId,
                 userId,
                 actionType: 'clock-out',
-                status: 'completed',
                 location: {
                     lat: location.lat,
-                    lng: location.lng
+                    lng: location.lng,
+                    address: location.address // Send address if avail
                 },
                 localTimestamp: now.toISOString()
             };
@@ -484,13 +584,19 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 };
             }
 
-            // ===== Online =====
-            await attendanceRepo.clockOut(attendanceData);
+            // ===== Online → Call Service =====
+            const result = await attendanceService.clockOut(userId, attendanceData.location);
+
+            if (result.isFailure) {
+                throw new Error(result.error);
+            }
+
+            const finalLog = result.getValue();
             await loadTodayRecord();
 
             return {
                 success: true,
-                message: 'เลิกงานแล้ว!'
+                message: `เลิกงานแล้ว! (ทำไป ${finalLog.workMinutes} นาที)`
             };
 
         } catch (err) {
@@ -512,10 +618,16 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
         const result = await offlineService.syncPendingData(
             // ฟังก์ชันอัปโหลดแต่ละ item
             async (item) => {
+                const ts = item.localTimestamp ? new Date(item.localTimestamp) : new Date();
+                const loc = item.location;
+
                 if (item.actionType === 'clock-in') {
-                    await attendanceRepo.clockIn(item);
+                    // Pass specific timestamp for offline data
+                    const shiftStart = item.shiftStart ? new Date(item.shiftStart) : null;
+                    // Note: Offline data stores companyId in item
+                    await attendanceService.clockIn(item.userId, item.companyId, loc, ts, shiftStart);
                 } else {
-                    await attendanceRepo.clockOut(item);
+                    await attendanceService.clockOut(item.userId, loc, ts);
                 }
             },
             // callback ความคืบหน้า
