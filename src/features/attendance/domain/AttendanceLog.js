@@ -74,16 +74,14 @@ export class AttendanceLog {
     /**
      * สั่ง Clock Out (สร้าง Instance ใหม่ที่มีเวลาออกงาน)
      * @param {Date} time เวลาที่กดออกงาน
+     * @param {Object} location พิกัดที่กดออกงาน (Optional)
      */
-    /**
-     * สั่ง Clock Out (สร้าง Instance ใหม่ที่มีเวลาออกงาน)
-     * @param {Date} time เวลาที่กดออกงาน
-     */
-    markClockOut(time) {
+    markClockOut(time, location = null) {
         // ใช้ create เพื่อ validate เวลาซ้ำอีกรอบ
         return AttendanceLog.create({
             ...this.props,
-            clockOut: time
+            clockOut: time,
+            clockOutLocation: location
         });
     }
 
@@ -92,6 +90,8 @@ export class AttendanceLog {
     get employeeId() { return this.props.employeeId; }
     get clockIn() { return this.props.clockIn; }
     get clockOut() { return this.props.clockOut; }
+    get status() { return this.props.status; }
+    get lateMinutes() { return this.props.lateMinutes; }
 
     /**
      * แปลงข้อมูลกลับเป็น Plain Object เพื่อบันทึกลง Database
@@ -102,7 +102,10 @@ export class AttendanceLog {
             employee_id: this.props.employeeId, // Snake case สำหรับ DB
             clock_in: this.props.clockIn,
             clock_out: this.props.clockOut || null,
-            location: this.props.location || null
+            location: this.props.location || null, // Clock In Location
+            clock_out_location: this.props.clockOutLocation || null, // Clock Out Location
+            status: this.props.status || 'on-time', // 'on-time', 'late'
+            late_minutes: this.props.lateMinutes || 0
         };
     }
 }

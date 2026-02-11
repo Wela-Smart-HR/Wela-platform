@@ -16,8 +16,12 @@ export class AttendanceService {
 
     /**
      * Use Case: พนักงานกดเข้างาน
+     * @param {string} employeeId
+     * @param {Object} location
+     * @param {Date} timestamp
+     * @param {Date} shiftStart (Optional) เวลาเริ่มงานสำหรับคำนวณสาย
      */
-    async clockIn(employeeId, location, timestamp = DateUtils.now()) {
+    async clockIn(employeeId, location, timestamp = DateUtils.now(), shiftStart = null) {
         try {
             // 1. เช็คก่อนว่าวันนี้กดไปหรือยัง? (Prevent Double Clock-in)
             // Note: เช็คจาก timestamp ที่ส่งมา (เผื่อเป็น offline data ของเมื่อวาน)
@@ -26,11 +30,24 @@ export class AttendanceService {
                 return Result.fail("คุณได้ลงเวลาเข้างานของวันนี้ไปแล้ว");
             }
 
+            // 1.1 คำนวณสาย (ถ้ามีตารางเวลา)
+            let lateMinutes = 0;
+            let status = 'on-time';
+
+            if (shiftStart) {
+                // สร้าง Temp Log เพื่อใช้ Logic คำนวณ (หรือจะเขียน Logic ตรงนี้ก็ได้)
+                const tempLog = new AttendanceLog({ clockIn: timestamp });
+                lateMinutes = tempLog.getLateMinutes(shiftStart);
+                if (lateMinutes > 0) status = 'late';
+            }
+
             // 2. สร้าง Domain Entity (ใช้ Factory Method ที่เราทำไว้)
             const logOrError = AttendanceLog.create({
                 employeeId: employeeId,
                 clockIn: timestamp,
-                location: location
+                location: location,
+                status: status,
+                lateMinutes: lateMinutes
             });
 
             if (logOrError.isFailure) {

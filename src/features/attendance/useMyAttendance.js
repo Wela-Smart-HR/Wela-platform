@@ -160,19 +160,33 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
 
                 // === Attendance Logs (Real-time) ===
                 const qAtt = query(
-                    collection(db, "attendance"),
-                    where("userId", "==", userId),
-                    where("createdAt", ">=", startOfMonthDate),
-                    orderBy("createdAt", "desc")
+                    collection(db, "attendance_logs"), // ✅ Use new collection
+                    where("employee_id", "==", userId), // ✅ Use snake_case field
+                    where("clock_in", ">=", startOfMonthStr), // ✅ Query by ISO String
+                    orderBy("clock_in", "desc")
                 );
 
                 const unsubAtt = onSnapshot(qAtt, (snapshot) => {
-                    const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    const filtered = docs.filter(d => {
-                        const date = d.createdAt.toDate();
-                        return date.getMonth() === currentMonth.getMonth() &&
-                            date.getFullYear() === currentMonth.getFullYear();
+                    const docs = snapshot.docs.map(doc => {
+                        const data = doc.data();
+                        return {
+                            id: doc.id,
+                            ...data,
+                            // ✅ Map snake_case -> camelCase (UI Support) / Date Object
+                            clockIn: data.clock_in ? new Date(data.clock_in) : null,
+                            clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                            userId: data.employee_id, // Map for backward compatibility
+                            // Keep original snake_case too if needed
+                        };
                     });
+
+                    // Filter again just in case (though query handles most)
+                    const filtered = docs.filter(d => {
+                        if (!d.clockIn) return false;
+                        return d.clockIn.getMonth() === currentMonth.getMonth() &&
+                            d.clockIn.getFullYear() === currentMonth.getFullYear();
+                    });
+
                     setAttendanceLogs(filtered);
                 });
 
@@ -382,6 +396,14 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 throw new Error(`คุณอยู่นอกรัศมีบริษัท (${distance} เมตร)`);
             }
 
+            // คำนวณเวลาเข้างานตามกะ (รวม Grace Period)
+            let scheduleTime = null;
+            if (options.scheduleData?.startTime) {
+                const [sh, sm] = options.scheduleData.startTime.split(':').map(Number);
+                scheduleTime = new Date();
+                scheduleTime.setHours(sh, sm + (companyConfig?.deduction?.gracePeriod || 0), 0, 0);
+            }
+
             // เตรียมข้อมูล
             const attendanceData = {
                 companyId,
@@ -392,7 +414,8 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                     lng: location.lng,
                     address: location.address
                 },
-                localTimestamp: new Date().toISOString()
+                localTimestamp: new Date().toISOString(),
+                shiftStart: scheduleTime ? scheduleTime.toISOString() : null // ✅ เก็บไว้ใช้ทั้ง Online/Offline
             };
 
             // ===== ถ้า Offline → เก็บไว้ใน Queue =====
@@ -408,7 +431,12 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
             }
 
             // ===== Online → Call Domain Service =====
-            const result = await attendanceService.clockIn(userId, attendanceData.location);
+            const result = await attendanceService.clockIn(
+                userId,
+                attendanceData.location,
+                new Date(attendanceData.localTimestamp),
+                scheduleTime
+            );
 
             if (result.isFailure) {
                 throw new Error(result.error);
@@ -416,12 +444,16 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
 
             await loadTodayRecord();
 
-            // TODO: isLate Logic should theoretically be in Domain, but maintaining UI feedback for now.
-            // For now, we return standard success.
+            // Check resulting status for UI message
+            const newLog = result.getValue();
+            const isLate = newLog.status === 'late';
+
             return {
                 success: true,
-                isLate: false, // Calculated on server/domain implicitly
-                message: (companyConfig?.greeting?.onTime || 'บันทึกสำเร็จ!')
+                isLate: isLate,
+                message: isLate
+                    ? (companyConfig?.greeting?.late || 'มาสายนะ')
+                    : (companyConfig?.greeting?.onTime || 'บันทึกสำเร็จ!')
             };
 
         } catch (err) {
@@ -511,7 +543,8 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
 
                 if (item.actionType === 'clock-in') {
                     // Pass specific timestamp for offline data
-                    await attendanceService.clockIn(item.userId, loc, ts);
+                    const shiftStart = item.shiftStart ? new Date(item.shiftStart) : null;
+                    await attendanceService.clockIn(item.userId, loc, ts, shiftStart);
                 } else {
                     await attendanceService.clockOut(item.userId, loc, ts);
                 }

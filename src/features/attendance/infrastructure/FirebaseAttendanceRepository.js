@@ -28,6 +28,9 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
             clock_in: data.clock_in ? data.clock_in.toISOString() : null, // แปลง Date เป็น String สำหรับ Firestore
             clock_out: data.clock_out ? data.clock_out.toISOString() : null,
             location: data.location || null,
+            clock_out_location: data.clock_out_location || null,
+            status: data.status,
+            late_minutes: data.late_minutes,
             updated_at: new Date().toISOString()
         };
     }
@@ -44,7 +47,10 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
             employeeId: data.employee_id,
             clockIn: data.clock_in ? new Date(data.clock_in) : null,
             clockOut: data.clock_out ? new Date(data.clock_out) : null,
-            location: data.location || null
+            location: data.location || null,
+            clockOutLocation: data.clock_out_location || null,
+            status: data.status,
+            lateMinutes: data.late_minutes
         });
 
         if (logOrError.isFailure) {
@@ -94,5 +100,37 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
 
         const docSnap = querySnapshot.docs[0];
         return this.toDomain(docSnap.id, docSnap.data());
+    }
+
+    /**
+     * ดึงประวัติการลงเวลา
+     */
+    async getRecordsByUser(userId, startDate, endDate) {
+        try {
+            const q = query(
+                collection(db, this.collectionName),
+                where("employee_id", "==", userId),
+                where("clock_in", ">=", startDate.toISOString()),
+                where("clock_in", "<=", endDate.toISOString()),
+                orderBy("clock_in", "desc")
+            );
+
+            const snapshot = await getDocs(q);
+
+            // แปลงข้อมูลกลับเป็น Domain Primitives เพื่อส่งให้ UI
+            return snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    ...data,
+                    // แปลง timestamp string กลับเป็น Date object ถ้าจำเป็น
+                    clock_in: data.clock_in ? new Date(data.clock_in) : null,
+                    clock_out: data.clock_out ? new Date(data.clock_out) : null
+                };
+            });
+        } catch (error) {
+            console.error("Repo Error:", error);
+            throw error;
+        }
     }
 }
