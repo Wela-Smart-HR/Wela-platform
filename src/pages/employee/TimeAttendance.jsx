@@ -30,7 +30,11 @@ const formatDateForInput = (dateObj) => {
     return `${year}-${month}-${day}`;
 };
 
-const formatTime = (timestamp) => timestamp ? timestamp.toDate().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : '--:--';
+const formatTime = (timestamp) => {
+    if (!timestamp) return '--:--';
+    const date = timestamp.toDate ? timestamp.toDate() : timestamp;
+    return date.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+};
 
 export default function TimeAttendance() {
     const { currentUser } = useAuth();
@@ -333,26 +337,28 @@ export default function TimeAttendance() {
                                             </div>
                                             <div className={`w-1 h-8 rounded-full mx-4 shrink-0 ${config.bar} opacity-80`}></div>
                                             <div className="flex-1">
-                                                {item.status === 'absent' ? (<span className="text-sm font-bold text-rose-500">Missing Entry <span className="text-[10px] font-normal text-slate-400 ml-1">(Tap to fix)</span></span>) : item.status === 'upcoming' ? (<span className="text-sm font-bold text-slate-400">Future Work</span>) : (<><div className="text-sm font-bold text-slate-800 tracking-tight">{item.hasRecord ? formatTime(item.clockIn?.createdAt) : '--:--'} - {item.hasRecord ? formatTime(item.clockOut?.createdAt) : '--:--'}</div><div className="text-[10px] font-medium text-slate-400 mt-0.5 flex items-center gap-1"><Clock weight="fill" size={12} />{item.hasRecord ? 'Work' : 'No Record'}</div></>)}
+                                                {item.status === 'absent' ? (<span className="text-sm font-bold text-rose-500">Missing Entry <span className="text-[10px] font-normal text-slate-400 ml-1">(Tap to fix)</span></span>) : item.status === 'upcoming' ? (<span className="text-sm font-bold text-slate-400">Future Work</span>) : (<><div className="text-sm font-bold text-slate-800 tracking-tight">{item.hasRecord ? formatTime(item.clockIn) : '--:--'} - {item.hasRecord ? formatTime(item.clockOut) : '--:--'}</div><div className="text-[10px] font-medium text-slate-400 mt-0.5 flex items-center gap-1"><Clock weight="fill" size={12} />{item.hasRecord ? 'Work' : 'No Record'}</div></>)}
                                             </div>
                                             <div className={`px-2.5 py-1 rounded-lg text-[10px] font-bold shrink-0 ${config.bg} ${config.text}`}>{config.label}</div>
                                         </div>
                                         {isExpanded && item.hasRecord && (
                                             <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 flex flex-col gap-2 animate-fade-in">
-                                                <div className="flex items-start gap-3"><MapPin className="text-slate-400 mt-0.5" weight="fill" size={16} /><div><p className="text-xs font-bold text-slate-600 mb-0.5">Location</p><p className="text-[10px] text-slate-500 leading-relaxed">{item.clockIn?.location?.address || "GPS Coordinates"}</p></div></div>
+                                                <div className="flex items-start gap-3"><MapPin className="text-slate-400 mt-0.5" weight="fill" size={16} /><div><p className="text-xs font-bold text-slate-600 mb-0.5">Location</p><p className="text-[10px] text-slate-500 leading-relaxed">{item.clockInLocation?.address || "GPS Coordinates"}</p></div></div>
                                                 {item.deduction > 0 && (<div className="flex items-start gap-3 mt-1 bg-white border border-rose-100 p-2 rounded-xl"><div className="w-8 h-8 rounded-full bg-rose-50 flex items-center justify-center text-rose-500 shrink-0"><WarningOctagon weight="fill" size={16} /></div><div className="flex-1"><div className="flex justify-between items-center"><p className="text-xs font-bold text-rose-600">Late Penalty</p><span className="text-xs font-bold text-rose-600">-฿{item.deduction}</span></div><p className="text-[10px] text-slate-500 mt-0.5">Late: {item.lateMinutes} mins {item.isCapped && <span className="block text-rose-500 font-bold mt-0.5">*Max Limit</span>}</p></div></div>)}
                                             </div>
                                         )}
-                                        {isExpanded && item.status === 'absent' && (
-                                            <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 animate-fade-in">
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); setIsRetroModalOpen(true); setRetroForm(prev => ({ ...prev, date: formatDateForInput(item.date) })); }}
-                                                    className="w-full py-2 bg-rose-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-200"
-                                                >
-                                                    Request Adjustment
-                                                </button>
-                                            </div>
-                                        )}
+                                        {
+                                            isExpanded && item.status === 'absent' && (
+                                                <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 animate-fade-in">
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); setIsRetroModalOpen(true); setRetroForm(prev => ({ ...prev, date: formatDateForInput(item.date) })); }}
+                                                        className="w-full py-2 bg-rose-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-200"
+                                                    >
+                                                        Request Adjustment
+                                                    </button>
+                                                </div>
+                                            )
+                                        }
                                     </div>
                                 );
                             })
@@ -362,38 +368,42 @@ export default function TimeAttendance() {
             )}
 
             {/* Retro Modal */}
-            {isRetroModalOpen && createPortal(
-                <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center font-sans">
-                    <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={() => setIsRetroModalOpen(false)}></div>
-                    <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col max-h-[90vh] animate-slide-up overflow-hidden">
-                        <div className="px-6 pt-6 pb-4 flex justify-between items-center shrink-0">
-                            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Timer weight="duotone" className="text-blue-500" /> Request Adjustment</h2>
-                            <button onClick={() => setIsRetroModalOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 flex items-center justify-center"><X weight="bold" /></button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
-                            <div className="flex gap-4">
-                                <div className="flex-1"><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Time In</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.timeIn} onChange={(e) => setRetroForm({ ...retroForm, timeIn: e.target.value })} /></div>
-                                <div className="flex-1"><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Time Out</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.timeOut} onChange={(e) => setRetroForm({ ...retroForm, timeOut: e.target.value })} /></div>
+            {
+                isRetroModalOpen && createPortal(
+                    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center font-sans">
+                        <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={() => setIsRetroModalOpen(false)}></div>
+                        <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col max-h-[90vh] animate-slide-up overflow-hidden">
+                            <div className="px-6 pt-6 pb-4 flex justify-between items-center shrink-0">
+                                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Timer weight="duotone" className="text-blue-500" /> Request Adjustment</h2>
+                                <button onClick={() => setIsRetroModalOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 flex items-center justify-center"><X weight="bold" /></button>
                             </div>
-                            <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Date</label><input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.date} onChange={(e) => setRetroForm({ ...retroForm, date: e.target.value })} /></div>
-                            <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Reason</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm text-slate-800 outline-none resize-none h-24 focus:ring-2 focus:ring-blue-100" placeholder="Why are you adjusting?" value={retroForm.reason} onChange={(e) => setRetroForm({ ...retroForm, reason: e.target.value })}></textarea></div>
-                            <div className="pt-4 pb-4"><button onClick={handleRetroSubmit} disabled={clocking} className="w-full bg-[#007AFF] text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-blue-500/20 active:scale-95 transition">Send Request</button></div>
+                            <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
+                                <div className="flex gap-4">
+                                    <div className="flex-1"><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Time In</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.timeIn} onChange={(e) => setRetroForm({ ...retroForm, timeIn: e.target.value })} /></div>
+                                    <div className="flex-1"><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Time Out</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.timeOut} onChange={(e) => setRetroForm({ ...retroForm, timeOut: e.target.value })} /></div>
+                                </div>
+                                <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Date</label><input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.date} onChange={(e) => setRetroForm({ ...retroForm, date: e.target.value })} /></div>
+                                <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Reason</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm text-slate-800 outline-none resize-none h-24 focus:ring-2 focus:ring-blue-100" placeholder="Why are you adjusting?" value={retroForm.reason} onChange={(e) => setRetroForm({ ...retroForm, reason: e.target.value })}></textarea></div>
+                                <div className="pt-4 pb-4"><button onClick={handleRetroSubmit} disabled={clocking} className="w-full bg-[#007AFF] text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-blue-500/20 active:scale-95 transition">Send Request</button></div>
+                            </div>
+                        </div>
+                    </div>, document.body
+                )
+            }
+
+            {
+                showGreetingPopup && (
+                    <div className="fixed inset-0 z-[70] flex items-center justify-center px-6 pointer-events-none">
+                        <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"></div>
+                        <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl p-6 animate-zoom-in pointer-events-auto flex flex-col items-center text-center relative z-10">
+                            <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${greetingMessage.isLate ? 'bg-orange-50 text-orange-500' : 'bg-[#E8F8ED] text-[#34C759]'}`}>{greetingMessage.isLate ? <WarningCircle weight="fill" size={40} /> : <CheckCircle weight="fill" size={40} />}</div>
+                            <h3 className="font-extrabold text-2xl text-slate-900 mb-2">{greetingMessage.title}</h3>
+                            <p className="text-slate-500 text-sm font-medium mb-6 px-4 leading-relaxed">{greetingMessage.text}</p>
+                            <button onClick={() => setShowGreetingPopup(false)} className="w-full bg-[#2563EB] text-white py-3.5 rounded-xl font-bold text-sm shadow-lg">Done</button>
                         </div>
                     </div>
-                </div>, document.body
-            )}
-
-            {showGreetingPopup && (
-                <div className="fixed inset-0 z-[70] flex items-center justify-center px-6 pointer-events-none">
-                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"></div>
-                    <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl p-6 animate-zoom-in pointer-events-auto flex flex-col items-center text-center relative z-10">
-                        <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${greetingMessage.isLate ? 'bg-orange-50 text-orange-500' : 'bg-[#E8F8ED] text-[#34C759]'}`}>{greetingMessage.isLate ? <WarningCircle weight="fill" size={40} /> : <CheckCircle weight="fill" size={40} />}</div>
-                        <h3 className="font-extrabold text-2xl text-slate-900 mb-2">{greetingMessage.title}</h3>
-                        <p className="text-slate-500 text-sm font-medium mb-6 px-4 leading-relaxed">{greetingMessage.text}</p>
-                        <button onClick={() => setShowGreetingPopup(false)} className="w-full bg-[#2563EB] text-white py-3.5 rounded-xl font-bold text-sm shadow-lg">Done</button>
-                    </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Helper Modals (Lazy Loaded) */}
             <Suspense fallback={null}>

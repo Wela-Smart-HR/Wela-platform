@@ -36,30 +36,30 @@ export const useSalaryCalculator = (records, schedules, config, currentMonth, us
             const d = String(dateObj.getDate()).padStart(2, '0');
             const dateKey = `${year}-${month}-${d}`;
 
-            // ✅ Fix: Explicitly find Clock In and Clock Out records
-            const clockInRecord = records.find(r => {
-                const rd = r.createdAt.toDate();
-                return rd.getDate() === day && rd.getMonth() === currentMonth.getMonth() && r.type === 'clock-in';
+            // ✅ FIX: Logic ใหม่ รองรับทั้ง Session-Based (New) และ Event-Based (Legacy)
+            // ค้นหา Record เดียวที่ตรงกับวันนี้ (เพราะ useMyAttendance รวมร่างมาให้แล้ว)
+            const mainRecord = records.find(r => {
+                // เช็คเวลาเข้างานเป็นหลัก
+                const dateVal = r.clockIn || (r.createdAt?.toDate ? r.createdAt.toDate() : (r.createdAt instanceof Date ? r.createdAt : null));
+
+                if (!dateVal) return false;
+
+                return dateVal.getDate() === day &&
+                    dateVal.getMonth() === currentMonth.getMonth() &&
+                    dateVal.getFullYear() === currentMonth.getFullYear();
             });
 
-            const clockOutRecord = records.find(r => {
-                const rd = r.createdAt.toDate();
-                return rd.getDate() === day && rd.getMonth() === currentMonth.getMonth() && r.type === 'clock-out';
-            });
+            // แยกส่วน Clock In / Clock Out จาก Main Record เดียวกัน
+            const clockInRecord = mainRecord;
+            const clockOutRecord = mainRecord;
 
             const schedule = schedules.find(s => s.date === dateKey);
-
-            // Fallback for calculating status if only have one record or legacy data
-            const anyRecord = clockInRecord || clockOutRecord || records.find(r => r.createdAt.toDate().getDate() === day && r.createdAt.toDate().getMonth() === currentMonth.getMonth());
 
             let status = 'off';
             let dailyIncome = 0;
             let deduction = 0;
             let lateMinutes = 0;
-            let hasRecord = !!anyRecord;
-
-            // Use clockInRecord for status determination if available, otherwise fallback
-            const mainRecord = clockInRecord || anyRecord;
+            let hasRecord = !!mainRecord; // แค่มี Main Record ก็ถือว่ามาทำงาน
 
             const dayOfWeek = dateObj.getDay();
             let isWorkDay = (schedule && schedule.type === 'work') ? true : (dayOfWeek !== 0 && dayOfWeek !== 6);
@@ -67,28 +67,23 @@ export const useSalaryCalculator = (records, schedules, config, currentMonth, us
 
             // --- Logic กำหนด Status ---
             if (schedule && schedule.type === 'leave') {
-                // 🟢 CASE: วันลา (Leave)
                 status = 'leave';
-                // stats.leaveCount++; // Moved to end to avoid double counting
             } else if (schedule && (schedule.type === 'off' || schedule.type === 'holiday')) {
                 status = schedule.type;
             } else if (isWorkDay) {
-                // 🟡 CASE: วันทำงานปกติ
                 if (mainRecord) {
-                    status = mainRecord.status || 'on-time'; // ยึด Status จาก Record
-                    // Adjusted = Manual Fix = On Time (usually)
+                    // ✅ ใช้ Status จาก Record เป็นหลัก (ถ้ามี)
+                    status = mainRecord.status || 'on-time';
                     if (status === 'adjusted') status = 'on-time';
                 }
                 else if (dateKey < formatDateLocal(new Date())) status = 'absent';
                 else if (dateKey === formatDateLocal(new Date())) status = 'today';
                 else status = 'upcoming';
             } else {
-                // 🔵 CASE: วันหยุด / OT
                 if (mainRecord) status = 'ot';
             }
 
             // --- Logic คำนวณเงิน ---
-            // Helper to format date for comparison
             function formatDateLocal(d) {
                 const year = d.getFullYear();
                 const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -96,39 +91,23 @@ export const useSalaryCalculator = (records, schedules, config, currentMonth, us
                 return `${year}-${month}-${day}`;
             }
 
-            const isPastOrToday = dateObj <= today;
             const hasActivity = hasRecord || status === 'late' || status === 'absent' || status === 'adjusted' || status === 'on-time';
 
             // Calculate Wage
             let wage = config.dailyWage || (config.baseSalary ? Math.round(config.baseSalary / 30) : 0);
 
             if (status === 'leave') {
-                // Leave Logic (Check if paid leave - assuming yes for now or based on type)
-                // For simplified logic: Leave = Wage (if paid)
-                // stats.leaveCount incremented below
                 dailyIncome = wage;
             }
             else if (isWorkDay && (hasActivity || status === 'absent')) {
                 if (isMonthly) {
                     dailyIncome = wage;
-                    if (status === 'absent' && dateKey < formatDateLocal(today)) {
-                        // Monthly employee: Absent = Deduct? Or just NO extra? 
-                        // Typically Monthly gets full salary unless deducted.
-                        // Let's assume No Deduction for Absent unless specified, 
-                        // BUT for "Daily Calculation" visualization, we might show 0 if Absent?
-                        // Let's keep distinct: Monthly = Fixed Wage per day accumulated.
-                        // If user wants strict "No Work No Pay" for Monthly, logic needs config.
-                        // For now: Late Deduction applies. Absent... let's say "No Pay" for that day in breakdown?
-                        // Actually, commonly: Monthly = Full Pay. Absent = Deduct.
-                        // deduction += wage; // If we want to deduct.
-                    }
                 } else {
-                    // Daily: No work = No pay
                     if (mainRecord || status === 'leave') dailyIncome = wage;
                 }
             }
 
-            // 2. Incentive & OT (Always add if schedule says so and worked)
+            // 2. Incentive & OT
             if (schedule && hasRecord) {
                 if (schedule.incentive) {
                     const inc = Number(schedule.incentive);
@@ -146,24 +125,20 @@ export const useSalaryCalculator = (records, schedules, config, currentMonth, us
                 }
             }
 
-            // 3. 🚨 คำนวณหักมาสาย (Only if NOT adjusted)
+            // 3. 🚨 คำนวณหักมาสาย
             if (clockInRecord && isWorkDay && schedule && schedule.startTime && status !== 'adjusted' && status !== 'on-time') {
-                // ... existing late logic ...
-                // If status was already 'adjusted' or 'on-time' from Repo, skip recalc
-                // But if status is 'late' from Repo or we want to calc:
-                const actualTime = clockInRecord.createdAt.toDate();
-                // สร้างเวลาเข้างานมาตรฐานจาก Schedule
+                // ... Logic คำนวณสายคงเดิม ...
+                const actualTime = clockInRecord.clockIn || (clockInRecord.createdAt?.toDate ? clockInRecord.createdAt.toDate() : clockInRecord.createdAt);
+
                 const [schedH, schedM] = schedule.startTime.split(':').map(Number);
                 const standardTime = new Date(actualTime);
                 standardTime.setHours(schedH, schedM, 0, 0);
 
-                // หาผลต่าง (ms)
                 const diffMs = actualTime - standardTime;
 
                 if (diffMs > 0) {
                     const diffMins = Math.floor(diffMs / 60000);
                     if (diffMins > (config.gracePeriod || 0)) {
-                        // It is LATE
                         lateMinutes = diffMins;
                         status = 'late';
 
@@ -191,18 +166,18 @@ export const useSalaryCalculator = (records, schedules, config, currentMonth, us
             if (dailyIncome < 0) dailyIncome = 0;
             currentAccumulatedIncome += dailyIncome;
 
-            // ✅ เก็บข้อมูลลง Array
             dailyBreakdown.push({
                 date: dateObj,
                 status: status,
                 deduction: deduction,
                 hasRecord: hasRecord,
-                clockIn: clockInRecord,
-                clockOut: clockOutRecord,
+                // ✅ ส่งข้อมูลที่ถูกต้องกลับไปให้ UI
+                clockIn: clockInRecord ? (clockInRecord.clockIn || clockInRecord.createdAt) : null,
+                clockOut: clockOutRecord ? (clockOutRecord.clockOut) : null,
+                clockInLocation: mainRecord?.clockInLocation || mainRecord?.location, // Map Location
                 isWorkDay: isWorkDay,
                 lateMinutes: lateMinutes,
                 income: dailyIncome,
-                // ✅ Add details for UI
                 leaveType: schedule?.leaveType || null,
                 note: schedule?.note || null
             });

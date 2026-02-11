@@ -158,39 +158,114 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 const startOfMonthStr = `${year}-${month}-01`;
                 const endOfMonthStr = `${year}-${month}-${lastDay}`;
 
-                // === Attendance Logs (Real-time) ===
+                // === 1. Attendance Logs (New System) ===
+                let newLogs = [];
+                let legacyLogs = [];
+
+                const updateMergedLogs = () => {
+                    // Create a Map to merge duplicates by Date (YYYY-MM-DD)
+                    // Prefer "New Logs" (attendance_logs) over Legacy
+                    const mergedMap = new Map();
+
+                    // Process Legacy First (Base Layer)
+                    legacyLogs.forEach(log => {
+                        if (!log.clockIn) return;
+                        const dateKey = log.clockIn.toDateString();
+                        mergedMap.set(dateKey, log);
+                    });
+
+                    // Process New Logs (Overlay - Higher Priority)
+                    newLogs.forEach(log => {
+                        if (!log.clockIn) return;
+                        const dateKey = log.clockIn.toDateString();
+                        mergedMap.set(dateKey, log);
+                    });
+
+                    // Sort by Date Descending
+                    const finalLogs = Array.from(mergedMap.values())
+                        .sort((a, b) => b.clockIn - a.clockIn);
+
+                    setAttendanceLogs(finalLogs);
+                };
+
                 const qAtt = query(
-                    collection(db, "attendance_logs"), // ✅ Use new collection
-                    where("employee_id", "==", userId), // ✅ Use snake_case field
-                    where("clock_in", ">=", startOfMonthStr), // ✅ Query by ISO String
+                    collection(db, "attendance_logs"),
+                    where("employee_id", "==", userId),
+                    where("clock_in", ">=", startOfMonthStr),
                     orderBy("clock_in", "desc")
                 );
 
                 const unsubAtt = onSnapshot(qAtt, (snapshot) => {
-                    const docs = snapshot.docs.map(doc => {
+                    newLogs = snapshot.docs.map(doc => {
                         const data = doc.data();
                         return {
                             id: doc.id,
                             ...data,
-                            // ✅ Map snake_case -> camelCase / Date Object
                             clockIn: data.clock_in ? new Date(data.clock_in) : null,
                             clockOut: data.clock_out ? new Date(data.clock_out) : null,
                             userId: data.employee_id,
-                            // ✅ New: clock_in_location (backward compat with old 'location' field)
                             clockInLocation: data.clock_in_location || data.location || null,
                             clockOutLocation: data.clock_out_location || null,
                             workMinutes: data.work_minutes || 0,
+                            date: data.clock_in ? new Date(data.clock_in) : new Date(), // ✅ Add date field
                         };
                     });
+                    updateMergedLogs();
+                });
 
-                    // Filter again just in case (though query handles most)
-                    const filtered = docs.filter(d => {
-                        if (!d.clockIn) return false;
-                        return d.clockIn.getMonth() === currentMonth.getMonth() &&
-                            d.clockIn.getFullYear() === currentMonth.getFullYear();
+                // === 2. Attendance (Legacy System Fallback) ===
+                // Helper to get End of Month Date
+                const endOfMonthDate = new Date(year, currentMonth.getMonth() + 1, 0, 23, 59, 59);
+
+                const qLegacy = query(
+                    collection(db, "attendance"),
+                    where("userId", "==", userId),
+                    where("createdAt", ">=", startOfMonthDate),
+                    where("createdAt", "<=", endOfMonthDate),
+                    orderBy("createdAt", "asc")
+                );
+
+                const unsubLegacy = onSnapshot(qLegacy, (snapshot) => {
+                    // Group Legacy Docs (Individual Events) by Date
+                    const groups = {};
+                    snapshot.docs.forEach(doc => {
+                        const d = doc.data();
+                        // Deduce Date Key
+                        let dateKey = d.date;
+                        if (!dateKey && d.createdAt) {
+                            const dateObj = d.createdAt.toDate();
+                            const y = dateObj.getFullYear();
+                            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+                            const day = String(dateObj.getDate()).padStart(2, '0');
+                            dateKey = `${y}-${m}-${day}`;
+                        }
+                        if (!dateKey) return;
+
+                        if (!groups[dateKey]) {
+                            groups[dateKey] = {
+                                id: doc.id,
+                                userId: d.userId,
+                                status: 'on-time' // default
+                            };
+                        }
+
+                        if (d.type === 'clock-in' || d.actionType === 'clock-in') {
+                            groups[dateKey].clockIn = d.createdAt?.toDate() || new Date(d.localTimestamp);
+                            groups[dateKey].clockInLocation = d.location;
+                            groups[dateKey].status = d.status || 'on-time';
+                        } else if (d.type === 'clock-out' || d.actionType === 'clock-out') {
+                            groups[dateKey].clockOut = d.createdAt?.toDate() || new Date(d.localTimestamp);
+                            groups[dateKey].clockOutLocation = d.location;
+                        }
                     });
 
-                    setAttendanceLogs(filtered);
+                    legacyLogs = Object.values(groups).map(g => ({
+                        ...g,
+                        hasRecord: true,
+                        date: g.clockIn || new Date() // Helper for sorting
+                    }));
+
+                    updateMergedLogs();
                 });
 
                 // === Schedules (Real-time) ===
@@ -214,6 +289,7 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
 
                 return () => {
                     unsubAtt();
+                    unsubLegacy();
                     unsubSch();
                 };
             } catch (err) {

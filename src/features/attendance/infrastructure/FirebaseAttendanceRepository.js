@@ -89,6 +89,7 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
         const endOfDay = new Date(startOfDay);
         endOfDay.setHours(startOfDay.getHours() + 24);
 
+        // 1. Try finding in NEW collection
         const q = query(
             collection(db, this.collectionName),
             where("employee_id", "==", employeeId),
@@ -99,17 +100,41 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
         );
 
         const querySnapshot = await getDocs(q);
-        if (querySnapshot.empty) return null;
+        if (!querySnapshot.empty) {
+            const docSnap = querySnapshot.docs[0];
+            return this.toDomain(docSnap.id, docSnap.data());
+        }
 
-        const docSnap = querySnapshot.docs[0];
-        return this.toDomain(docSnap.id, docSnap.data());
+        // 2. FALLBACK: Try finding in LEGACY collection ('attendance')
+        console.warn(`[Repo] New log not found for ${employeeId} on ${date.toDateString()}. Checking legacy 'attendance'...`);
+
+        try {
+            const legacyQ = query(
+                collection(db, 'attendance'),
+                where("userId", "==", employeeId),
+                where("createdAt", ">=", startOfDay),
+                where("createdAt", "<", endOfDay),
+                orderBy("createdAt", "asc") // Sort ASC to pair In/Out correctly
+            );
+
+            const legacySnap = await getDocs(legacyQ);
+            if (legacySnap.empty) return null;
+
+            // Merge Legacy Docs (Separate In/Out) into One Domain Entity
+            return this._mergeLegacyDocsToDomain(legacySnap.docs);
+
+        } catch (err) {
+            console.error("[Repo] Legacy Fallback Error:", err);
+            return null;
+        }
     }
 
     /**
-     * ดึงประวัติการลงเวลา
+     * ดึงประวัติการลงเวลา (Merge New + Legacy)
      */
     async getRecordsByUser(userId, startDate, endDate) {
         try {
+            // 1. Fetch NEW Logs
             const q = query(
                 collection(db, this.collectionName),
                 where("employee_id", "==", userId),
@@ -117,21 +142,137 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
                 where("clock_in", "<=", endDate.toISOString()),
                 orderBy("clock_in", "desc")
             );
+            const newSnap = await getDocs(q);
+            const newLogs = newSnap.docs.map(d => this.toDomain(d.id, d.data())).filter(Boolean);
 
-            const snapshot = await getDocs(q);
+            // 2. Fetch LEGACY Logs
+            // Note: We fetch a bit wider range or exact range. Firestore standard query.
+            const legacyQ = query(
+                collection(db, 'attendance'),
+                where("userId", "==", userId),
+                where("createdAt", ">=", startDate),
+                where("createdAt", "<=", endDate),
+                orderBy("createdAt", "desc")
+            );
+            const legacySnap = await getDocs(legacyQ);
 
-            return snapshot.docs.map(doc => {
-                const data = doc.data();
-                return {
-                    id: doc.id,
-                    ...data,
-                    clock_in: data.clock_in ? new Date(data.clock_in) : null,
-                    clock_out: data.clock_out ? new Date(data.clock_out) : null
-                };
+            // 3. Convert Legacy Docs -> Domain Entities
+            // Legacy stores atomic events (Clock In doc, Clock Out doc). 
+            // We need to group them by "Day" or "Session" to match Domain Entity.
+            const legacyLogs = this._processLegacySnapshots(legacySnap.docs);
+
+            // 4. Merge & Deduplicate
+            // Strategy: Verify if 'date' already exists in newLogs. If so, use newLogs.
+            // (Assuming new system migration writes back to new collection)
+            const methods = {};
+
+            // Add New Logs first (Priority)
+            newLogs.forEach(log => {
+                const key = log.clockIn.toDateString();
+                methods[key] = log;
             });
+
+            // Add Legacy Logs if not exists
+            legacyLogs.forEach(log => {
+                const key = log.clockIn.toDateString();
+                if (!methods[key]) {
+                    methods[key] = log;
+                }
+            });
+
+            // Convert back to array & Sort
+            return Object.values(methods).sort((a, b) => b.clockIn - a.clockIn);
+
         } catch (error) {
             console.error("Repo Error:", error);
             throw error;
         }
+    }
+
+    // ==========================================
+    // 🛠️ LEGACY HELPERS
+    // ==========================================
+
+    /**
+     * Convert list of legacy docs (In/Out mixed) into Domain Entities
+     */
+    _processLegacySnapshots(docs) {
+        const groups = {}; // Key: YYYY-MM-DD
+
+        docs.forEach(doc => {
+            const data = doc.data();
+            // Use 'date' field if avail (added recently in legacy repo), else derive from createdAt
+            let dateKey = data.date;
+            if (!dateKey && data.createdAt) {
+                dateKey = data.createdAt.toDate().toISOString().split('T')[0];
+            }
+
+            if (!dateKey) return;
+
+            if (!groups[dateKey]) groups[dateKey] = { in: null, out: null, companyId: data.companyId, userId: data.userId };
+
+            if (data.type === 'clock-in' || data.actionType === 'clock-in') {
+                groups[dateKey].in = data;
+                groups[dateKey].inId = doc.id;
+            } else if (data.type === 'clock-out' || data.actionType === 'clock-out') {
+                groups[dateKey].out = data;
+            }
+        });
+
+        // Convert Groups to Domain objects
+        return Object.values(groups).map(g => {
+            if (!g.in) return null; // Must have at least Clock In
+
+            const clockInTime = g.in.createdAt ? g.in.createdAt.toDate() : new Date(g.in.localTimestamp);
+            const clockOutTime = g.out ? (g.out.createdAt ? g.out.createdAt.toDate() : new Date(g.out.localTimestamp)) : null;
+
+            return AttendanceLog.create({
+                id: g.inId, // Use ClockIn Doc ID as Identity
+                companyId: g.companyId,
+                employeeId: g.userId,
+                clockIn: clockInTime,
+                clockOut: clockOutTime,
+                clockInLocation: g.in.location ? Location.fromPersistence(g.in.location) : null,
+                clockOutLocation: g.out?.location ? Location.fromPersistence(g.out.location) : null,
+                status: g.in.status || 'on-time', // Legacy might not have status, default
+                lateMinutes: 0 // Legacy calculation complicated, default 0
+            }).getValue();
+        }).filter(Boolean);
+    }
+
+    /**
+     * Merge specific legacy docs (e.g. for findLatest) into one Domain Entity
+     */
+    _mergeLegacyDocsToDomain(docs) {
+        // Assume docs are from SAME Day, sorted ASC
+        const inDoc = docs.find(d => {
+            const data = d.data();
+            return data.type === 'clock-in' || data.actionType === 'clock-in';
+        });
+
+        if (!inDoc) return null; // No Clock In found
+
+        const outDoc = docs.find(d => {
+            const data = d.data();
+            return data.type === 'clock-out' || data.actionType === 'clock-out';
+        });
+
+        const inData = inDoc.data();
+        const outData = outDoc ? outDoc.data() : null;
+
+        const clockInTime = inData.createdAt ? inData.createdAt.toDate() : new Date(inData.localTimestamp);
+        const clockOutTime = outData ? (outData.createdAt ? outData.createdAt.toDate() : new Date(outData.localTimestamp)) : null;
+
+        return AttendanceLog.create({
+            id: inDoc.id,
+            companyId: inData.companyId,
+            employeeId: inData.userId,
+            clockIn: clockInTime,
+            clockOut: clockOutTime,
+            clockInLocation: inData.location ? Location.fromPersistence(inData.location) : null,
+            clockOutLocation: outData?.location ? Location.fromPersistence(outData.location) : null,
+            status: inData.status || 'on-time',
+            lateMinutes: 0
+        }).getValue();
     }
 }
