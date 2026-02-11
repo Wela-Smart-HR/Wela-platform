@@ -101,7 +101,8 @@ export class AttendanceLog {
             id: this.props.id,
             employee_id: this.props.employeeId, // Snake case สำหรับ DB
             clock_in: this.props.clockIn,
-            clock_out: this.props.clockOut || null
+            clock_out: this.props.clockOut || null,
+            location: this.props.location || null
         };
     }
 }

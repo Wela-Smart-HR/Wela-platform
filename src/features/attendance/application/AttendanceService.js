@@ -17,10 +17,11 @@ export class AttendanceService {
     /**
      * Use Case: พนักงานกดเข้างาน
      */
-    async clockIn(employeeId) {
+    async clockIn(employeeId, location, timestamp = DateUtils.now()) {
         try {
             // 1. เช็คก่อนว่าวันนี้กดไปหรือยัง? (Prevent Double Clock-in)
-            const existingLog = await this.repo.findLatestByEmployee(employeeId, DateUtils.now());
+            // Note: เช็คจาก timestamp ที่ส่งมา (เผื่อเป็น offline data ของเมื่อวาน)
+            const existingLog = await this.repo.findLatestByEmployee(employeeId, timestamp);
             if (existingLog) {
                 return Result.fail("คุณได้ลงเวลาเข้างานของวันนี้ไปแล้ว");
             }
@@ -28,7 +29,8 @@ export class AttendanceService {
             // 2. สร้าง Domain Entity (ใช้ Factory Method ที่เราทำไว้)
             const logOrError = AttendanceLog.create({
                 employeeId: employeeId,
-                clockIn: DateUtils.now()
+                clockIn: timestamp,
+                location: location
             });
 
             if (logOrError.isFailure) {
@@ -51,10 +53,10 @@ export class AttendanceService {
     /**
      * Use Case: พนักงานกดออกงาน
      */
-    async clockOut(employeeId) {
+    async clockOut(employeeId, location, timestamp = DateUtils.now()) {
         try {
             // 1. หาใบลงเวลาใบเดิมของวันนี้
-            const existingLog = await this.repo.findLatestByEmployee(employeeId, DateUtils.now());
+            const existingLog = await this.repo.findLatestByEmployee(employeeId, timestamp);
 
             if (!existingLog) {
                 return Result.fail("ไม่พบข้อมูลการเข้างาน กรุณากดเข้างานก่อน");
@@ -65,7 +67,7 @@ export class AttendanceService {
             }
 
             // 2. สั่ง Domain ให้ Clock Out (คำนวณเวลาอัตโนมัติในตัว)
-            const updatedLogOrError = existingLog.markClockOut(DateUtils.now());
+            const updatedLogOrError = existingLog.markClockOut(timestamp, location);
 
             if (updatedLogOrError.isFailure) {
                 return Result.fail(updatedLogOrError.error);

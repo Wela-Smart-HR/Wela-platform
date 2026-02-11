@@ -3,7 +3,7 @@ import { FirebaseAttendanceRepository } from '../features/attendance/infrastruct
 // import { InMemoryAttendanceRepository } from '../features/attendance/infrastructure/InMemoryAttendanceRepository.js';
 
 // 1. เลือก Repository ที่ต้องการใช้ (สลับบรรทัด comment ได้เลย)
-const attendanceRepo = new FirebaseAttendanceRepository();
+export const attendanceRepo = new FirebaseAttendanceRepository();
 // const attendanceRepo = new InMemoryAttendanceRepository(); // ใช้ตัวนี้ถ้าอยากเทสโดยไม่ต่อเน็ต
 
 // 2. สร้าง Service Singleton (มีตัวเดียวทั้งแอพ)

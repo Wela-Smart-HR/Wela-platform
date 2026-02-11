@@ -27,6 +27,7 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
             employee_id: data.employee_id,
             clock_in: data.clock_in ? data.clock_in.toISOString() : null, // แปลง Date เป็น String สำหรับ Firestore
             clock_out: data.clock_out ? data.clock_out.toISOString() : null,
+            location: data.location || null,
             updated_at: new Date().toISOString()
         };
     }
@@ -42,7 +43,8 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
             id: docId,
             employeeId: data.employee_id,
             clockIn: data.clock_in ? new Date(data.clock_in) : null,
-            clockOut: data.clock_out ? new Date(data.clock_out) : null
+            clockOut: data.clock_out ? new Date(data.clock_out) : null,
+            location: data.location || null
         });
 
         if (logOrError.isFailure) {

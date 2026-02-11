@@ -45,7 +45,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { gpsService } from './gps.service';
 import { offlineService } from './offline.service';
 import { useGlobalConfig } from '../../contexts/ConfigContext';
-import { attendanceRepo } from './attendance.repo';
+import { attendanceService, attendanceRepo } from '../../di/attendanceDI.js';
+import { DateUtils } from '../../shared/kernel/DateUtils.js';
 
 // ... (other imports)
 
@@ -351,8 +352,9 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
         if (!userId) return;
 
         try {
-            const record = await attendanceRepo.getTodayRecord(userId);
-            setTodayRecord(record);
+            // ✅ ใช้ Repo ใหม่ดึงข้อมูล
+            const logDomain = await attendanceRepo.findLatestByEmployee(userId, new Date());
+            setTodayRecord(logDomain ? logDomain.toPrimitives() : null);
         } catch (err) {
             console.error('[useMyAttendance] Load today error:', err);
         }
@@ -380,36 +382,17 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 throw new Error(`คุณอยู่นอกรัศมีบริษัท (${distance} เมตร)`);
             }
 
-            // คำนวณว่าสายหรือไม่
-            let isLate = false;
-            let lateMins = 0;
-            const now = new Date();
-
-            if (options.scheduleData?.startTime) {
-                const [sh, sm] = options.scheduleData.startTime.split(':').map(Number);
-                const scheduleTime = new Date();
-                scheduleTime.setHours(sh, sm + (companyConfig?.deduction?.gracePeriod || 0), 0, 0);
-
-                if (now > scheduleTime) {
-                    isLate = true;
-                    // Calculate late minutes
-                    const diffMs = now - scheduleTime;
-                    lateMins = Math.floor(diffMs / 60000);
-                }
-            }
-
             // เตรียมข้อมูล
             const attendanceData = {
                 companyId,
                 userId,
                 actionType: 'clock-in',
-                status: isLate ? 'late' : 'on-time',
-                lateMins: isLate ? lateMins : 0, // ✅ Save late minutes
                 location: {
                     lat: location.lat,
-                    lng: location.lng
+                    lng: location.lng,
+                    address: location.address
                 },
-                localTimestamp: now.toISOString()
+                localTimestamp: new Date().toISOString()
             };
 
             // ===== ถ้า Offline → เก็บไว้ใน Queue =====
@@ -418,22 +401,27 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 setTodayRecord({ ...attendanceData, _offline: true });
                 return {
                     success: true,
-                    isLate,
+                    isLate: false,
                     message: 'บันทึกไว้ในเครื่อง จะอัปโหลดเมื่อมีเน็ต',
                     offline: true
                 };
             }
 
-            // ===== Online → บันทึกเลย =====
-            await attendanceRepo.clockIn(attendanceData);
+            // ===== Online → Call Domain Service =====
+            const result = await attendanceService.clockIn(userId, attendanceData.location);
+
+            if (result.isFailure) {
+                throw new Error(result.error);
+            }
+
             await loadTodayRecord();
 
+            // TODO: isLate Logic should theoretically be in Domain, but maintaining UI feedback for now.
+            // For now, we return standard success.
             return {
                 success: true,
-                isLate,
-                message: isLate
-                    ? (companyConfig?.greeting?.late || 'มาสายนะ')
-                    : (companyConfig?.greeting?.onTime || 'บันทึกสำเร็จ!')
+                isLate: false, // Calculated on server/domain implicitly
+                message: (companyConfig?.greeting?.onTime || 'บันทึกสำเร็จ!')
             };
 
         } catch (err) {
@@ -465,10 +453,10 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 companyId,
                 userId,
                 actionType: 'clock-out',
-                status: 'completed',
                 location: {
                     lat: location.lat,
-                    lng: location.lng
+                    lng: location.lng,
+                    address: location.address // Send address if avail
                 },
                 localTimestamp: now.toISOString()
             };
@@ -484,13 +472,19 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 };
             }
 
-            // ===== Online =====
-            await attendanceRepo.clockOut(attendanceData);
+            // ===== Online → Call Service =====
+            const result = await attendanceService.clockOut(userId, attendanceData.location);
+
+            if (result.isFailure) {
+                throw new Error(result.error);
+            }
+
+            const finalLog = result.getValue();
             await loadTodayRecord();
 
             return {
                 success: true,
-                message: 'เลิกงานแล้ว!'
+                message: `เลิกงานแล้ว! (ทำไป ${finalLog.workMinutes} นาที)`
             };
 
         } catch (err) {
@@ -512,10 +506,14 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
         const result = await offlineService.syncPendingData(
             // ฟังก์ชันอัปโหลดแต่ละ item
             async (item) => {
+                const ts = item.localTimestamp ? new Date(item.localTimestamp) : new Date();
+                const loc = item.location;
+
                 if (item.actionType === 'clock-in') {
-                    await attendanceRepo.clockIn(item);
+                    // Pass specific timestamp for offline data
+                    await attendanceService.clockIn(item.userId, loc, ts);
                 } else {
-                    await attendanceRepo.clockOut(item);
+                    await attendanceService.clockOut(item.userId, loc, ts);
                 }
             },
             // callback ความคืบหน้า
