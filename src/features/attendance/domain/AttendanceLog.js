@@ -75,7 +75,11 @@ export class AttendanceLog {
      * สั่ง Clock Out (สร้าง Instance ใหม่ที่มีเวลาออกงาน)
      * @param {Date} time เวลาที่กดออกงาน
      */
-    clockOut(time) {
+    /**
+     * สั่ง Clock Out (สร้าง Instance ใหม่ที่มีเวลาออกงาน)
+     * @param {Date} time เวลาที่กดออกงาน
+     */
+    markClockOut(time) {
         // ใช้ create เพื่อ validate เวลาซ้ำอีกรอบ
         return AttendanceLog.create({
             ...this.props,

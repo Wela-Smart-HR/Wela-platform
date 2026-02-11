@@ -98,5 +98,18 @@ export const DateUtils = {
         const [startH] = shiftStartTime.split(':').map(Number);
         const [endH] = shiftEndTime.split(':').map(Number);
         return endH < startH;
+    },
+
+    /**
+     * Check if the given date is "Today" in Bangkok Time
+     * @param {Date|string} date 
+     * @returns {boolean}
+     */
+    isToday: (date) => {
+        const d = typeof date === 'string' ? parseISO(date) : date;
+        const bangkokDate = toZonedTime(d, TIMEZONE);
+        const bangkokNow = toZonedTime(new Date(), TIMEZONE);
+
+        return formatFns(bangkokDate, 'yyyy-MM-dd') === formatFns(bangkokNow, 'yyyy-MM-dd');
     }
 };
