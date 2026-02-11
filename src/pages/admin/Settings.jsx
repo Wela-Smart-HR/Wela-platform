@@ -40,9 +40,18 @@ export default function Settings() {
       setStoreConfig(prev => ({
         ...prev,
         ...settings,
+        // GPS location (support nested and flat)
         location: settings.settings?.location || settings.location || prev.location,
         radius: settings.settings?.radius || settings.radius || prev.radius,
         gpsEnabled: settings.settings?.gpsEnabled ?? settings.gpsEnabled ?? prev.gpsEnabled,
+        // ✅ Greeting (from flattened company doc)
+        onTimeMessage: settings.greeting?.onTimeMessage || prev.onTimeMessage,
+        lateMessage: settings.greeting?.lateMessage || prev.lateMessage,
+        // ✅ Deduction (from flattened company doc)
+        gracePeriod: settings.deduction?.gracePeriod || prev.gracePeriod,
+        deductionPerMinute: settings.deduction?.deductionPerMinute || prev.deductionPerMinute,
+        maxDeduction: settings.deduction?.maxDeduction || prev.maxDeduction,
+        // Shifts & OT
         otTypes: settings.otTypes || []
       }));
     }

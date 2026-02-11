@@ -23,11 +23,30 @@ export function ConfigProvider({ children, companyId }) {
             // This replaces multiple fetches in Dashboard, Payroll, Schedule, etc.
             unsubscribe = onSnapshot(docRef, (docSnap) => {
                 if (docSnap.exists()) {
+                    const data = docSnap.data();
                     setCompanyConfig({
                         id: docSnap.id,
-                        ...docSnap.data(),
-                        // ✅ Default Features (ถ้าไม่มีใน DB ให้ถือว่าเปิดหมด)
-                        features: docSnap.data().features || {
+                        ...data,
+
+                        // ✅ Normalize: ดึง location/radius/gpsEnabled ออกจาก settings (nested) → top-level
+                        //    ให้ทุกหน้าเข้าถึงได้ตรงๆ เช่น companyConfig.location, companyConfig.radius
+                        location: data.settings?.location || data.location || null,
+                        radius: data.settings?.radius || data.radius || 350,
+                        gpsEnabled: data.settings?.gpsEnabled ?? data.gpsEnabled ?? true,
+
+                        // ✅ Normalize: greeting / deduction (ตอนนี้อยู่ main doc แล้ว)
+                        greeting: {
+                            onTime: data.greeting?.onTimeMessage || '',
+                            late: data.greeting?.lateMessage || ''
+                        },
+                        deduction: {
+                            gracePeriod: data.deduction?.gracePeriod || 0,
+                            deductionPerMinute: data.deduction?.deductionPerMinute || 0,
+                            maxDeduction: data.deduction?.maxDeduction || 0
+                        },
+
+                        // ✅ Default Features
+                        features: data.features || {
                             payroll: true,
                             attendance: true,
                             myWork: { overview: false, calendar: true }
