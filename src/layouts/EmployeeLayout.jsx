@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { House, Clock, CalendarCheck, Wallet, User, Fingerprint } from '@phosphor-icons/react';
+import { House, Clock, CalendarCheck, Wallet, User, Fingerprint, Plus, AirplaneTilt, Timer } from '@phosphor-icons/react';
+import { useRequestModal } from '../contexts/RequestModalContext';
 
 // 1. NavItem Component (คงเดิม)
 const NavItem = ({ path, icon: Icon, label, isActiveFunc }) => {
@@ -38,7 +39,9 @@ const NavItem = ({ path, icon: Icon, label, isActiveFunc }) => {
 export default function EmployeeLayout() {
   const location = useLocation();
   const [isNavOpen, setIsNavOpen] = useState(true);
+  const [showFabMenu, setShowFabMenu] = useState(false);
   const lastScrollY = useRef(0);
+  const { openLeaveModal, openAdjustModal } = useRequestModal();
 
   const handleScroll = (e) => {
     const currentScrollY = e.target.scrollTop;
@@ -78,6 +81,61 @@ export default function EmployeeLayout() {
             <Outlet />
           </div>
         </div>
+
+        {/* 🎯 GLOBAL REQUEST FAB (Above Nav Bar) */}
+        <div className="absolute bottom-28 right-6 z-50 flex flex-col items-end gap-4 pointer-events-none">
+
+          {/* Menu Items (Expand from bottom) */}
+          <div className={`flex flex-col gap-3 transition-all duration-300 origin-bottom-right ${showFabMenu ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 translate-y-10 scale-95 pointer-events-none'
+            }`}>
+
+            {/* Leave Request Button */}
+            <button
+              onClick={() => {
+                openLeaveModal();
+                setShowFabMenu(false);
+              }}
+              className="pointer-events-auto flex items-center gap-3 group"
+            >
+              <span className="bg-white text-slate-700 text-xs font-bold py-1.5 px-3 rounded-lg shadow-sm border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0 duration-200">
+                Leave Request
+              </span>
+              <div className="w-12 h-12 bg-blue-600 rounded-2xl shadow-lg shadow-blue-500/30 flex items-center justify-center text-white hover:bg-blue-700 active:scale-90 transition">
+                <AirplaneTilt weight="fill" size={20} />
+              </div>
+            </button>
+
+            {/* Time Adjustment Button */}
+            <button
+              onClick={() => {
+                openAdjustModal();
+                setShowFabMenu(false);
+              }}
+              className="pointer-events-auto flex items-center gap-3 group"
+            >
+              <span className="bg-white text-slate-700 text-xs font-bold py-1.5 px-3 rounded-lg shadow-sm border border-slate-100 opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0 duration-200">
+                Time Adjustment
+              </span>
+              <div className="w-12 h-12 bg-slate-800 rounded-2xl shadow-lg shadow-slate-800/30 flex items-center justify-center text-white hover:bg-slate-900 active:scale-90 transition">
+                <Timer weight="fill" size={20} />
+              </div>
+            </button>
+          </div>
+
+          {/* Main Trigger Button */}
+          <button
+            onClick={() => setShowFabMenu(!showFabMenu)}
+            className={`w-14 h-14 bg-[#0F172A] text-white rounded-[20px] shadow-xl shadow-slate-900/20 flex items-center justify-center hover:scale-105 active:scale-95 transition pointer-events-auto ${showFabMenu ? 'rotate-45 bg-rose-500 shadow-rose-500/30' : ''
+              }`}
+          >
+            <Plus size={24} weight="bold" />
+          </button>
+        </div>
+
+        {/* Overlay for FAB */}
+        {showFabMenu && (
+          <div className="fixed inset-0 bg-slate-900/20 z-40 backdrop-blur-[1px]" onClick={() => setShowFabMenu(false)}></div>
+        )}
 
         {/* 4. แถบบาร์ลอยตัว */}
         <div className="absolute bottom-8 left-0 right-0 z-50 flex justify-center pointer-events-none">
