@@ -175,7 +175,7 @@ export default function Payroll() {
     const maxVal = Math.max(...displayTrend, 1);
 
     return (
-        <div className="flex flex-col h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
+        <div className="flex flex-col min-h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
 
             {/* HEADER */}
             <header className="px-6 pt-6 pb-2 sticky top-0 bg-[#FAFAFA]/90 z-20">
@@ -213,7 +213,7 @@ export default function Payroll() {
                 </div>
             </header>
 
-            <main className="flex-1 overflow-y-auto no-scrollbar px-6 pb-6 pt-2">
+            <main className="flex-1 px-6 pb-6 pt-2">
 
                 {/* ================= TAB 1: OVERVIEW ================= */}
                 {activeTab === 'overview' && (

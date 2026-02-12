@@ -42,7 +42,7 @@ export default function Schedule() {
     };
 
     return (
-        <div className="flex flex-col h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
+        <div className="flex flex-col min-h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
 
             {/* 1. Header & Navigation */}
             <ScheduleHeader
@@ -50,7 +50,7 @@ export default function Schedule() {
                 setViewMode={actions.setViewMode}
             />
 
-            <main className="flex-1 overflow-y-auto no-scrollbar px-6 pb-6 pt-4">
+            <main className="flex-1 px-6 pb-6 pt-4">
 
                 {/* 2. Daily View (Deep Drill-down) */}
                 {state.viewMode === 'daily' && (

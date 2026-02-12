@@ -96,7 +96,7 @@ export default function People() {
   };
 
   return (
-    <div id="page-admin-people" className="flex flex-col h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
+    <div id="page-admin-people" className="flex flex-col min-h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
 
       {/* HEADER */}
       <header className="px-6 pt-6 pb-2 z-20 bg-[#FAFAFA]/90 backdrop-blur-sm sticky top-0">
@@ -123,7 +123,7 @@ export default function People() {
       </header>
 
       {/* CONTENT LIST */}
-      <main className="flex-1 overflow-y-auto no-scrollbar px-6 pb-6 pt-2">
+      <main className="flex-1 px-6 pb-6 pt-2">
         <div className="space-y-3">
           {loading ? (
             <div className="text-center py-10 text-slate-400 text-xs">กำลังโหลดข้อมูล...</div>
