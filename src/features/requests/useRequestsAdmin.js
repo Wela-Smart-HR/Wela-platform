@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { requestsRepo } from './requests.repo';
+import { db } from '@/shared/lib/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { useAuth } from '../../contexts/AuthContext';
 
 /**
  * Hook for managing requests (admin perspective)
@@ -8,6 +11,7 @@ import { requestsRepo } from './requests.repo';
  * @returns {Object}
  */
 export function useRequestsAdmin(companyId, filterStatus = 'pending') {
+    const { currentUser } = useAuth();
     const [requests, setRequests] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -22,7 +26,26 @@ export function useRequestsAdmin(companyId, filterStatus = 'pending') {
         try {
             setLoading(true);
             const data = await requestsRepo.getRequestsByCompany(companyId, filterStatus);
-            setRequests(data);
+
+            // Enrich with User Profiles (Photo, DisplayName)
+            if (data.length > 0) {
+                const userIds = [...new Set(data.map(r => r.userId))];
+                const userPromises = userIds.map(uid => getDoc(doc(db, 'users', uid)));
+                const userSnaps = await Promise.all(userPromises);
+
+                const userMap = {};
+                userSnaps.forEach(snap => {
+                    if (snap.exists()) userMap[snap.id] = snap.data();
+                });
+
+                const enrichedData = data.map(req => ({
+                    ...req,
+                    userProfile: userMap[req.userId] || {}
+                }));
+                setRequests(enrichedData);
+            } else {
+                setRequests([]);
+            }
             setError(null);
         } catch (err) {
             console.error('Error loading requests:', err);
@@ -38,7 +61,7 @@ export function useRequestsAdmin(companyId, filterStatus = 'pending') {
             // รองรับทั้ง object และ string ID
             const requestId = typeof requestOrId === 'string' ? requestOrId : requestOrId?.id;
             if (!requestId) throw new Error('Invalid request ID');
-            await requestsRepo.updateRequestStatus(requestId, 'approved', adminNote);
+            await requestsRepo.approveRequest(requestId, currentUser, adminNote);
             await loadRequests();
             setError(null);
         } catch (err) {
@@ -56,7 +79,7 @@ export function useRequestsAdmin(companyId, filterStatus = 'pending') {
             // รองรับทั้ง object และ string ID
             const requestId = typeof requestOrId === 'string' ? requestOrId : requestOrId?.id;
             if (!requestId) throw new Error('Invalid request ID');
-            await requestsRepo.updateRequestStatus(requestId, 'rejected', adminNote);
+            await requestsRepo.rejectRequest(requestId, currentUser, adminNote);
             await loadRequests();
             setError(null);
         } catch (err) {
