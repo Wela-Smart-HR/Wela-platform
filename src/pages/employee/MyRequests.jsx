@@ -158,7 +158,7 @@ export default function MyRequests() {
                 ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
                 : 'text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}
             >
-              {tab === 'pending' ? 'Pending' : tab === 'approved' ? 'Approved' : 'History'}
+              {tab === 'pending' ? 'Pending' : tab === 'approved' ? 'Approved' : 'Rejected'}
             </button>
           ))}
         </div>
