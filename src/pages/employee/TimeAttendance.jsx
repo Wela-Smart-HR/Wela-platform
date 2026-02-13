@@ -69,6 +69,9 @@ export default function TimeAttendance() {
         clockIn: hookClockIn,
         clockOut: hookClockOut,
         submitRetroRequest: hookSubmitRetro,
+        isStuck,
+        staleCheckIn,
+        closeStaleShift
     } = useMyAttendance(currentUser?.uid, currentUser?.companyId, currentMonth);
 
     // Mapped State
@@ -89,6 +92,11 @@ export default function TimeAttendance() {
     const [expandedId, setExpandedId] = useState(null);
     const [isRetroModalOpen, setIsRetroModalOpen] = useState(locationRoute.state?.openRetro || false);
     const [retroForm, setRetroForm] = useState({ date: '', timeIn: '', timeOut: '', reason: '', location: '' });
+
+    // Close Shift Modal State
+    const [isCloseShiftModalOpen, setIsCloseShiftModalOpen] = useState(false);
+    const [closeShiftForm, setCloseShiftForm] = useState({ date: '', outTime: '', reason: '' });
+
     const [showGreetingPopup, setShowGreetingPopup] = useState(false);
     const [greetingMessage, setGreetingMessage] = useState({ title: '', text: '', isLate: false, type: 'in' });
     const popupTimeoutRef = useRef(null);
@@ -195,6 +203,32 @@ export default function TimeAttendance() {
         }
     };
 
+    const handleCloseShiftSubmit = async () => {
+        if (!closeShiftForm.outTime || !closeShiftForm.reason || !closeShiftForm.date) {
+            dialog.showAlert("กรุณากรอกข้อมูลให้ครบถ้วน", "ข้อมูลไม่ครบ", "warning");
+            return;
+        }
+
+        setClocking(true);
+        try {
+            // Construct Date (combine date + time)
+            const baseDate = new Date(closeShiftForm.date);
+            const [h, m] = closeShiftForm.outTime.split(':').map(Number);
+            baseDate.setHours(h, m, 0, 0);
+
+            // Call Service
+            await closeStaleShift(staleCheckIn.id, baseDate, closeShiftForm.reason);
+
+            await dialog.showAlert("ปิดกะเรียบร้อยแล้ว", "สำเร็จ", "success");
+            setIsCloseShiftModalOpen(false);
+            setCloseShiftForm({ date: '', outTime: '', reason: '' });
+        } catch (err) {
+            dialog.showAlert(err.message, "Error", "error");
+        } finally {
+            setClocking(false);
+        }
+    };
+
     return (
         <div className="h-[100dvh] bg-[#F2F2F7] font-sans text-slate-900 relative overflow-hidden select-none flex flex-col">
 
@@ -279,13 +313,44 @@ export default function TimeAttendance() {
                         distance={distance}
                     />
 
-                    {/* ✅ Uses Extracted HoldButton */}
-                    <HoldButton
-                        onAction={handleAttemptClock}
-                        disabled={clocking || locationStatus !== 'success'}
-                        isClockIn={isClockIn}
-                        locationStatus={locationStatus}
-                    />
+                    {/* ✅ Close Previous Shift Card (Stale Check-in) */}
+                    {isStuck && staleCheckIn ? (
+                        <div className="w-full max-w-[320px] bg-rose-50 border border-rose-100 rounded-2xl p-5 shadow-lg shadow-rose-100 flex flex-col gap-4 animate-pulse-soft">
+                            <div className="flex items-start gap-3">
+                                <div className="bg-rose-100 text-rose-500 rounded-full p-2 shrink-0">
+                                    <WarningCircle weight="fill" size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="text-sm font-bold text-rose-600">You forgot to clock out!</h3>
+                                    <p className="text-[11px] text-rose-400 leading-tight mt-1">
+                                        Last check-in was on <b>{formatDateForInput(staleCheckIn.clockIn)}</b> at <b>{formatTime(staleCheckIn.clockIn)}</b>.
+                                        <br />Please close this shift before starting a new one.
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setIsCloseShiftModalOpen(true);
+                                    setCloseShiftForm({
+                                        date: formatDateForInput(staleCheckIn.clockIn),
+                                        outTime: '18:00',
+                                        reason: 'ลืมตอกบัตรออก'
+                                    });
+                                }}
+                                className="w-full py-3 rounded-xl bg-rose-500 text-white font-bold text-xs shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
+                            >
+                                <SignOut weight="bold" size={16} /> Close Previous Shift
+                            </button>
+                        </div>
+                    ) : (
+                        /* ✅ Normal Hold Button */
+                        <HoldButton
+                            onAction={handleAttemptClock}
+                            disabled={clocking || locationStatus !== 'success'}
+                            isClockIn={isClockIn}
+                            locationStatus={locationStatus}
+                        />
+                    )}
 
                     <button
                         onClick={() => setIsRetroModalOpen(true)}
@@ -402,6 +467,62 @@ export default function TimeAttendance() {
                             <button onClick={() => setShowGreetingPopup(false)} className="w-full bg-[#2563EB] text-white py-3.5 rounded-xl font-bold text-sm shadow-lg">Done</button>
                         </div>
                     </div>
+                )
+            }
+
+            {/* Close Shift Modal */}
+            {
+                isCloseShiftModalOpen && createPortal(
+                    <div className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center font-sans">
+                        <div className="absolute inset-0 bg-black/40 backdrop-blur-md transition-opacity" onClick={() => setIsCloseShiftModalOpen(false)}></div>
+                        <div className="bg-white w-full max-w-sm rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col p-6 animate-slide-up">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                                    <SignOut weight="duotone" className="text-rose-500" /> Close Shift
+                                </h2>
+                                <button onClick={() => setIsCloseShiftModalOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 flex items-center justify-center"><X weight="bold" /></button>
+                            </div>
+
+                            <div className="space-y-4 mb-6">
+                                <div>
+                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Date</label>
+                                    <input
+                                        type="date"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition"
+                                        value={closeShiftForm.date}
+                                        onChange={(e) => setCloseShiftForm({ ...closeShiftForm, date: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Actual Clock Out Time</label>
+                                    <input
+                                        type="time"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition"
+                                        value={closeShiftForm.outTime}
+                                        onChange={(e) => setCloseShiftForm({ ...closeShiftForm, outTime: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Reason</label>
+                                    <textarea
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-800 outline-none resize-none h-20 focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition"
+                                        placeholder="ทำไมถึงลืมตอกบัตรออก?"
+                                        value={closeShiftForm.reason}
+                                        onChange={(e) => setCloseShiftForm({ ...closeShiftForm, reason: e.target.value })}
+                                    ></textarea>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={handleCloseShiftSubmit}
+                                disabled={clocking}
+                                className="w-full bg-rose-500 text-white py-3.5 rounded-xl font-bold text-base shadow-lg shadow-rose-500/20 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                                {clocking ? <Crosshair className="animate-spin" /> : <CheckCircle weight="bold" />}
+                                Confirm Close Shift
+                            </button>
+                        </div>
+                    </div>, document.body
                 )
             }
 

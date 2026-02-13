@@ -122,7 +122,25 @@ export class AttendanceLog {
             clock_out_location: this.props.clockOutLocation?.toPrimitives() || null,
             status: this.props.status || 'on-time',
             late_minutes: this.props.lateMinutes || 0,
-            work_minutes: this.getWorkDurationMinutes()
+            work_minutes: this.getWorkDurationMinutes(),
+            is_manual: this.props.isManual || false,
+            manual_reason: this.props.manualReason || null
         };
+    }
+
+    /**
+     * สั่งปิดกะแบบ Manual (สำหรับเคสลืมออกงาน)
+     * @param {Date} time เวลาที่ระบุ
+     * @param {string} reason เหตุผล
+     */
+    markManualClockOut(time, reason) {
+        return AttendanceLog.create({
+            ...this.props,
+            clockOut: time,
+            clockOutLocation: null, // Manual usually has no location or use previous? Let's say null or specific flag
+            status: 'pending_review', // Change status to pending review
+            isManual: true,
+            manualReason: reason
+        });
     }
 }

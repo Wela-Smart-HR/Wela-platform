@@ -115,9 +115,44 @@ export class AttendanceService {
             // 5. คืนค่า (workMinutes อยู่ใน toPrimitives แล้ว)
             return Result.ok(finalLog.toPrimitives());
 
+            return Result.ok(finalLog.toPrimitives());
+
         } catch (error) {
             console.error(error);
             return Result.fail("System Error: ไม่สามารถบันทึกเวลาออกได้");
+        }
+    }
+
+    /**
+     * Use Case: ปิดกะที่ค้างอยู่ (Manual Close)
+     * @param {string} employeeId 
+     * @param {string} logId 
+     * @param {Date} manualTime 
+     * @param {string} reason 
+     */
+    async closeStaleShift(employeeId, logId, manualTime, reason) {
+        try {
+            // 1. หา Log เดิม
+            const existingLog = await this.repo.findById(logId);
+            if (!existingLog) return Result.fail("ไม่พบรายการลงเวลา");
+
+            if (existingLog.employeeId !== employeeId) return Result.fail("คุณไม่มีสิทธิ์แก้ไขรายการนี้");
+            if (existingLog.clockOut) return Result.fail("รายการนี้ถูกปิดไปแล้ว");
+
+            // 2. สั่ง Domain ให้ Manual Close
+            const updatedLogOrError = existingLog.markManualClockOut(manualTime, reason);
+
+            if (updatedLogOrError.isFailure) return Result.fail(updatedLogOrError.error);
+            const finalLog = updatedLogOrError.getValue();
+
+            // 3. บันทึก
+            await this.repo.save(finalLog);
+
+            return Result.ok(finalLog.toPrimitives());
+
+        } catch (error) {
+            console.error(error);
+            return Result.fail("System Error: ไม่สามารถปิดกะได้");
         }
     }
 }

@@ -58,7 +58,9 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
             clockInLocation: clockInLocRaw ? Location.fromPersistence(clockInLocRaw) : null,
             clockOutLocation: clockOutLocRaw ? Location.fromPersistence(clockOutLocRaw) : null,
             status: data.status,
-            lateMinutes: data.late_minutes
+            lateMinutes: data.late_minutes,
+            isManual: data.is_manual,
+            manualReason: data.manual_reason
         });
 
         if (logOrError.isFailure) {
