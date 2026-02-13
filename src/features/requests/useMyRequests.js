@@ -1,83 +1,110 @@
 import { useState, useEffect } from 'react';
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from '@/shared/lib/firebase';
 import { requestsRepo } from './requests.repo';
-import { validateLeaveRequest, validateAttendanceAdjustment } from './requests.rules';
 
 /**
  * Hook for managing own requests (employee perspective)
- * @param {string} userId 
+ * Uses Realtime Listener for live updates + Repo for writes.
+ * @param {Object} currentUser - Full user object from AuthContext
  * @returns {Object}
  */
-export function useMyRequests(userId) {
+export function useMyRequests(currentUser) {
     const [requests, setRequests] = useState([]);
-    const [loading, setLoading] = useState(false);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
+    // Realtime Listener (replaces the direct Firestore call in MyRequests.jsx)
     useEffect(() => {
-        if (userId) {
-            loadRequests();
-        }
-    }, [userId]);
+        if (!currentUser?.uid) return;
 
-    const loadRequests = async () => {
-        try {
-            setLoading(true);
-            const data = await requestsRepo.getRequestsByUser(userId);
-            setRequests(data);
-            setError(null);
-        } catch (err) {
-            console.error('Error loading requests:', err);
-            setError(err.message);
-        } finally {
+        const q = query(
+            collection(db, 'requests'),
+            where('userId', '==', currentUser.uid),
+            orderBy('createdAt', 'desc')
+        );
+
+        const unsubscribe = onSnapshot(q, (snap) => {
+            const docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setRequests(docs);
             setLoading(false);
-        }
-    };
+        }, (err) => {
+            console.error('Realtime listener error:', err);
+            setError(err.message);
+            setLoading(false);
+        });
 
-    const createRequest = async (requestData) => {
+        return () => unsubscribe();
+    }, [currentUser?.uid]);
+
+    /**
+     * Submit Leave Request (via Repo with Snapshot + Document Numbering)
+     */
+    const submitLeaveRequest = async (leaveData) => {
         try {
-            setLoading(true);
             setError(null);
-
-            // Validate based on request type
-            let validation;
-            if (requestData.type === 'leave') {
-                validation = validateLeaveRequest(requestData);
-            } else if (requestData.type === 'attendance-adjustment') {
-                validation = validateAttendanceAdjustment(requestData);
-            } else {
-                validation = { valid: false, error: 'Invalid request type' };
-            }
-
-            if (!validation.valid) {
-                throw new Error(validation.error);
-            }
-
-            await requestsRepo.createRequest({
-                ...requestData,
-                userId
+            const result = await requestsRepo.createRequest({
+                companyId: currentUser.companyId,
+                userId: currentUser.uid,
+                userName: currentUser.displayName || currentUser.email,
+                type: 'leave',
+                leaveType: leaveData.type,
+                startDate: leaveData.startDate || leaveData.date,
+                endDate: leaveData.endDate || leaveData.date,
+                reason: leaveData.reason,
+                date: leaveData.date || leaveData.startDate, // Backward compat & Fix undefined
             });
-
-            await loadRequests();
+            return result; // { id, documentNo }
         } catch (err) {
-            console.error('Error creating request:', err);
+            console.error('Error submitting leave:', err);
             setError(err.message);
             throw err;
-        } finally {
-            setLoading(false);
         }
     };
 
-    const deleteRequest = async (requestId) => {
+    /**
+     * Submit Attendance Adjustment Request (via Repo)
+     */
+    const submitAdjustmentRequest = async (adjustData) => {
         try {
-            setLoading(true);
-            await requestsRepo.deleteRequest(requestId);
-            await loadRequests();
+            if (!adjustData.date) throw new Error("กรุณาระบุวันที่ต้องการแก้ไข");
             setError(null);
+
+            const result = await requestsRepo.createRequest({
+                companyId: currentUser.companyId,
+                userId: currentUser.uid,
+                userName: currentUser.displayName || currentUser.email,
+                type: 'attendance-adjustment',
+                targetDate: adjustData.date,
+                timeIn: adjustData.timeIn,
+                timeOut: adjustData.timeOut,
+                reason: adjustData.reason,
+                date: adjustData.date, // Backward compat
+            });
+            return result; // { id, documentNo }
         } catch (err) {
-            console.error('Error deleting request:', err);
+            console.error('Error submitting adjustment:', err);
             setError(err.message);
             throw err;
-        } finally {
-            setLoading(false);
+        }
+    };
+
+    /**
+     * Cancel Request (only if pending)
+     */
+    const cancelRequest = async (requestId) => {
+        try {
+            setError(null);
+            // Simple status update — No need for complex transaction
+            const { updateDoc, doc, serverTimestamp } = await import('firebase/firestore');
+            await updateDoc(doc(db, 'requests', requestId), {
+                status: 'cancelled',
+                updatedAt: serverTimestamp(),
+            });
+        } catch (err) {
+            console.error('Error cancelling request:', err);
+            setError(err.message);
+            throw err;
         }
     };
 
@@ -85,8 +112,8 @@ export function useMyRequests(userId) {
         requests,
         loading,
         error,
-        reload: loadRequests,
-        createRequest,
-        deleteRequest
+        submitLeaveRequest,
+        submitAdjustmentRequest,
+        cancelRequest,
     };
 }

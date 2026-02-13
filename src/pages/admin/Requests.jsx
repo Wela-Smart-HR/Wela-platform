@@ -1,66 +1,38 @@
 import React, { useState, useRef } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { useDialog } from '../../contexts/DialogContext'; // ✅ 1. เพิ่ม Import Dialog
+import { useDialog } from '../../contexts/DialogContext';
 import {
   Check, X, CalendarBlank, WarningCircle, Clock,
-  HandSwipeLeft, WarningOctagon, CaretRight
+  HandSwipeLeft, WarningOctagon, CaretRight, CaretDown,
+  Steps, FileText, UserCircle, NotePencil, CheckCircle, XCircle, AirplaneTilt
 } from '@phosphor-icons/react';
 
-// ✅ Import Hook จาก Features Architecture
 import { useRequestsAdmin } from '../../features/requests/useRequestsAdmin';
-
-// --- COMPONENTS ---
-const SwipeableItem = ({ children, onSwipeLeft, onSwipeRight, disabled }) => {
-  const [dragX, setDragX] = useState(0);
-  const startX = useRef(0);
-  const containerRef = useRef(null);
-
-  const handleTouchStart = (e) => { if (disabled) return; startX.current = e.touches[0].clientX; };
-  const handleTouchMove = (e) => {
-    if (disabled) return;
-    const diff = e.touches[0].clientX - startX.current;
-    if (diff > -120 && diff < 120) setDragX(diff);
-  };
-  const handleTouchEnd = () => {
-    if (disabled) return;
-    if (dragX > 80) onSwipeRight && onSwipeRight();
-    else if (dragX < -80) onSwipeLeft && onSwipeLeft();
-    setDragX(0);
-  };
-
-  return (
-    <div className="relative overflow-hidden mb-3 rounded-xl touch-pan-y select-none group">
-      <div className={`absolute inset-0 flex items-center justify-between px-6 transition-colors rounded-xl ${dragX > 0 ? 'bg-emerald-500' : dragX < 0 ? 'bg-rose-500' : 'bg-white'}`}>
-        <div className={`flex items-center gap-2 text-white font-bold text-sm ${dragX > 0 ? 'opacity-100' : 'opacity-0'}`}><Check weight="bold" size={20} /> อนุมัติ</div>
-        <div className={`flex items-center gap-2 text-white font-bold text-sm ${dragX < 0 ? 'opacity-100' : 'opacity-0'}`}>ปฏิเสธ <X weight="bold" size={20} /></div>
-      </div>
-      <div ref={containerRef} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}
-        style={{ transform: `translateX(${dragX}px)`, transition: 'transform 0.2s ease-out' }}
-        className="relative bg-white shadow-sm border border-slate-100 rounded-xl"
-      >
-        {children}
-      </div>
-    </div>
-  );
-};
 
 export default function Requests() {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
-  const dialog = useDialog(); // ✅ 2. เรียกใช้ Hook Dialog
-  // UI State
+  const dialog = useDialog();
   const [filter, setFilter] = useState('pending');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
 
-  // ✅ เรียกใช้ Hook ข้อมูล จาก Features
+  // Use Admin Hook
   const { requests, loading, approveRequest, rejectRequest } = useRequestsAdmin(currentUser?.companyId, filter);
 
   // --- ACTIONS ---
-  const handleAction = async (req, action) => {
-    // ✅ 3. เปลี่ยน window.confirm เป็น dialog.showConfirm
+  const handleAction = async (req, action, e) => {
+    if (e) e.stopPropagation();
+
+    // Logic for Button Label (Next Step vs Final)
+    const isNextStep = req.status === 'pending' && req.workflowSnapshot && (req.currentStepIndex < (req.workflowSnapshot.steps?.length - 1));
+    const actionLabel = action === 'approved'
+      ? (isNextStep ? 'อนุมัติ (ส่งต่อ)' : 'อนุมัติ (เสร็จสิ้น)')
+      : 'ปฏิเสธ';
+
     const isConfirmed = await dialog.showConfirm(
-      `${action === 'approved' ? 'อนุมัติ' : 'ปฏิเสธ'} รายการของ ${req.userName}?`,
+      `${actionLabel} รายการของ ${req.userProfile?.displayName || req.userName}?`,
       "ยืนยันการทำรายการ"
     );
 
@@ -69,23 +41,26 @@ export default function Requests() {
       try {
         if (action === 'approved') {
           await approveRequest(req);
-          // (Optional) อาจจะไม่ต้องแจ้งเตือน Success ก็ได้ถ้าลิสต์หายไปเอง แต่ถ้าอยากใส่ก็ได้ครับ
-          dialog.showAlert("อนุมัติเรียบร้อย", "สำเร็จ", "success");
+          dialog.showAlert(isNextStep ? "ส่งต่อเรียบร้อย" : "อนุมัติเรียบร้อย", "สำเร็จ", "success");
         } else {
           await rejectRequest(req);
           dialog.showAlert("ปฏิเสธคำขอเรียบร้อย", "สำเร็จ", "success");
         }
       } catch (error) {
-        // ✅ 4. เปลี่ยน alert เป็น dialog.showAlert
         dialog.showAlert("เกิดข้อผิดพลาด: " + error.message, "Error", "error");
       }
       setIsProcessing(false);
+      setExpandedId(null); // Collapse after action
     }
+  };
+
+  const toggleExpand = (id) => {
+    setExpandedId(prev => prev === id ? null : id);
   };
 
   const filteredRequests = requests.filter(r => r.status === filter);
 
-  // --- FORMATTERS ---
+  // --- HELPERS ---
   const formatDateTh = (dateStr) => {
     if (!dateStr) return '';
     const date = new Date(dateStr);
@@ -93,26 +68,20 @@ export default function Requests() {
   };
 
   const getDateInfo = (req) => {
-    // Guard: ถ้าไม่มี data ให้ return ค่าว่าง
-    if (!req?.data) return '-';
-
+    // Support both old and new data structures
+    const data = req || {};
     if (req.type === 'leave') {
+      const s = req.startDate || req.date;
+      const e = req.endDate || req.date;
       return (
         <span className="flex items-center gap-1">
-          {formatDateTh(req.data?.startDate)}
-          {req.data?.startDate !== req.data?.endDate && <span className="text-slate-400 font-normal">➜</span>}
-          {req.data?.startDate !== req.data?.endDate && formatDateTh(req.data?.endDate)}
+          {formatDateTh(s)}
+          {s !== e && <span className="text-slate-400 font-normal">➜</span>}
+          {s !== e && formatDateTh(e)}
         </span>
       );
     }
-    return formatDateTh(req.data?.date);
-  };
-
-  const getReasonInfo = (req) => {
-    if (req.type === 'leave') return req.reason || 'พักผ่อน/กิจธุระ';
-    if (req.type === 'retro') return `เวลา ${req.data?.timeIn} - ${req.data?.timeOut} ${req.reason ? '• ' + req.reason : ''}`;
-    if (req.type === 'unscheduled_alert') return `เวลา ${req.data?.time} น.`;
-    return '-';
+    return formatDateTh(req.targetDate || req.date);
   };
 
   const getTypeStyle = (type) => {
@@ -121,21 +90,21 @@ export default function Requests() {
     return 'text-blue-600';
   };
 
-  const getTypeLabel = (type, data) => {
-    if (type === 'unscheduled_alert') return 'ด่วน! นอกกะ';
-    if (type === 'leave') return `ลา${data?.leaveType || 'งาน'}`;
+  const getTypeLabel = (req) => { // Updated to take whole req object
+    if (req.type === 'unscheduled_alert') return 'ด่วน! นอกกะ';
+    if (req.type === 'leave') return req.leaveType || 'ลา (ไม่ระบุ)';
     return 'แก้เวลา';
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
+    <div className="flex flex-col min-h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
 
       {/* HEADER */}
       <header className="px-6 pt-6 pb-2 z-20 bg-[#FAFAFA]/90 backdrop-blur-sm sticky top-0">
         <div className="flex justify-between items-center mb-4">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">รายการคำขอ</h1>
-            <p className="text-xs text-slate-400 mt-0.5">ปัดขวาเพื่ออนุมัติ • ปัดซ้ายเพื่อปฏิเสธ</p>
+            <p className="text-xs text-slate-400 mt-0.5">Admin Dashboard</p>
           </div>
         </div>
 
@@ -151,8 +120,8 @@ export default function Requests() {
       </header>
 
       {/* LIST */}
-      <main className="flex-1 overflow-y-auto no-scrollbar px-6 pb-6 pt-2">
-        <div className="space-y-3">
+      <main className="flex-1 px-6 pb-6 pt-2">
+        <div className="space-y-3 pb-20">
           {loading ? (
             <div className="text-center py-10 text-slate-400 text-xs">กำลังโหลดรายการ...</div>
           ) : filteredRequests.length === 0 ? (
@@ -162,86 +131,138 @@ export default function Requests() {
             </div>
           ) : (
             filteredRequests.map((req) => {
+              const isExpanded = expandedId === req.id;
+              const isNextStep = req.status === 'pending' && req.workflowSnapshot && (req.currentStepIndex < (req.workflowSnapshot.steps?.length - 1));
 
-              // 1. Security Alert (แสดงผลต่างจากเพื่อน)
-              if (req.type === 'security_alert') {
-                return (
-                  <div key={req.id} className="bg-red-50 border border-red-100 p-4 rounded-xl mb-3 flex items-start gap-4 shadow-sm animate-pulse">
-                    <div className="w-10 h-10 bg-red-100 text-red-600 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
-                      <WarningOctagon weight="fill" size={24} />
+              return (
+                <div
+                  key={req.id}
+                  onClick={() => toggleExpand(req.id)}
+                  className={`relative overflow-hidden mb-3 rounded-xl transition-all duration-300 border border-slate-100 shadow-sm cursor-pointer active:scale-[0.99] group ${isExpanded ? 'bg-slate-50 ring-2 ring-slate-100' : 'bg-white'}`}
+                >
+                  {/* --- MAIN CARD ROW --- */}
+                  <div className="flex items-start gap-3 p-4">
+                    {/* DOC NO */}
+                    <div className="absolute top-3 right-3 text-[9px] font-mono font-bold text-slate-300 tracking-wider">
+                      {req.documentNo || req.id.slice(0, 8)}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start">
-                        <h4 className="font-bold text-red-700 text-sm">🚨 {req.title || 'Security Alert'}</h4>
-                        <span className="text-[10px] text-red-400 font-medium">
-                          {req.createdAt?.toDate().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                      <p className="text-xs text-red-600 mt-1 font-medium">User: <span className="font-bold">{req.userName}</span></p>
-                      <p className="text-xs text-slate-600 mt-2 bg-white p-2.5 rounded-lg border border-red-100 shadow-sm leading-relaxed">{req.detail}</p>
-                      {filter === 'pending' && (
-                        <div className="mt-3">
-                          <button onClick={() => handleAction(req, 'approved')} className="px-4 py-2 bg-red-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-red-700 transition w-full sm:w-auto">รับทราบ / ปิดแจ้งเตือน</button>
+
+
+                    {/* Avatar & Icon Badge */}
+                    <div className="pt-1 relative">
+                      {req.userProfile?.photoURL ? (
+                        <img src={req.userProfile.photoURL} alt="Avatar" className="w-12 h-12 rounded-full object-cover border-2 border-white shadow-sm" />
+                      ) : (
+                        <div className={`w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-sm ${req.type === 'leave' ? 'bg-orange-300' : 'bg-blue-300'}`}>
+                          {(req.userProfile?.displayName || req.userName || '?').charAt(0).toUpperCase()}
                         </div>
                       )}
-                    </div>
-                  </div>
-                );
-              }
-
-              // 2. Normal Request Card
-              return (
-                <SwipeableItem
-                  key={req.id}
-                  disabled={filter !== 'pending' || isProcessing}
-                  onSwipeRight={() => handleAction(req, 'approved')}
-                  onSwipeLeft={() => handleAction(req, 'rejected')}
-                >
-                  <div className="flex items-start gap-3 p-4">
-                    {/* Icon */}
-                    <div className="pt-1">
-                      {req.type === 'unscheduled_alert' ? <div className="w-10 h-10 rounded-full bg-rose-50 text-rose-500 flex items-center justify-center"><WarningCircle weight="fill" size={20} /></div> :
-                        req.type === 'leave' ? <div className="w-10 h-10 rounded-full bg-orange-50 text-orange-500 flex items-center justify-center"><CalendarBlank weight="fill" size={20} /></div> :
-                          <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center"><Clock weight="fill" size={20} /></div>}
-                    </div>
-
-                    {/* Content */}
-                    <div className="flex-1 min-w-0 flex flex-col gap-1">
-                      <div className="flex justify-between items-start">
-                        <h3 className="font-bold text-slate-800 text-sm truncate">{req.userName}</h3>
-                        <span className="text-[10px] text-slate-400 flex-shrink-0 ml-2">
-                          {req.createdAt?.toDate ? req.createdAt.toDate().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }) : ''}
-                        </span>
+                      <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white flex items-center justify-center text-white text-[10px] shadow-sm ${req.type === 'leave' ? 'bg-orange-500' : req.type === 'unscheduled_alert' ? 'bg-rose-500' : 'bg-blue-500'}`}>
+                        {req.type === 'leave' ? <AirplaneTilt weight="fill" /> : req.type === 'unscheduled_alert' ? <WarningCircle weight="fill" /> : <Clock weight="fill" />}
                       </div>
+                    </div>
+
+                    {/* Content Header */}
+                    <div className="flex-1 min-w-0 flex flex-col gap-1 pr-14 pl-2">
+                      <div className="flex justify-between items-start">
+                        <h3 className="font-bold text-slate-800 text-sm truncate">{req.userProfile?.displayName || req.userName}</h3>
+                      </div>
+
+                      {/* SUBMISSION TIME (For Manager Review) */}
+                      <p className="text-[10px] text-slate-400 mt-0.5 mb-1.5 flex items-center gap-1">
+                        ส่งเมื่อ: {req.createdAt?.seconds ? new Date(req.createdAt.seconds * 1000).toLocaleString('th-TH', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-'}
+                      </p>
+
                       <div className="flex items-center flex-wrap gap-2 text-xs">
-                        <span className={`font-bold ${getTypeStyle(req.type)} uppercase tracking-wide text-[10px]`}>{getTypeLabel(req.type, req.data)}</span>
+                        <span className={`font-bold ${getTypeStyle(req.type)} uppercase tracking-wide text-[10px]`}>{getTypeLabel(req)}</span>
                         <span className="text-slate-300 text-[10px]">|</span>
                         <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-100 px-2 py-0.5 rounded text-slate-700 font-bold">
                           <CalendarBlank weight="fill" className="text-slate-400" />
                           {getDateInfo(req)}
                         </div>
                       </div>
-                      <p className="text-[11px] text-slate-400 truncate mt-0.5">{getReasonInfo(req)}</p>
+
+                      {/* Short Reason (if collapsed) */}
+                      {!isExpanded && <p className="text-[11px] text-slate-400 truncate mt-0.5">{req.reason || '-'}</p>}
                     </div>
 
-                    {/* Actions (Desktop Click) */}
-                    {filter === 'pending' && (
-                      <div className="hidden md:flex flex-col gap-2 pl-2 border-l border-slate-100 justify-center h-full my-auto">
-                        <button onClick={() => handleAction(req, 'approved')} className={`w-8 h-8 rounded-lg flex items-center justify-center text-white shadow-sm transition ${req.type === 'unscheduled_alert' ? 'bg-rose-500 hover:bg-rose-600' : 'bg-slate-900 hover:bg-slate-800'}`}><Check weight="bold" /></button>
-                        <button onClick={() => handleAction(req, 'rejected')} className="w-8 h-8 rounded-lg flex items-center justify-center border border-slate-200 text-slate-400 hover:bg-slate-50 transition"><X weight="bold" /></button>
-                      </div>
-                    )}
-
                     {/* Mobile Hint (Caret) */}
-                    {filter === 'pending' && <div className="md:hidden self-center text-slate-300 pl-2"><CaretRight size={16} /></div>}
-
-                    {filter !== 'pending' && (
-                      <div className={`self-center text-[10px] px-2 py-1 rounded-lg font-bold uppercase ml-2 ${req.status === 'approved' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
-                        {req.status}
-                      </div>
-                    )}
+                    <div className={`self-center text-slate-300 pl-2 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
+                      <CaretDown size={14} weight="bold" />
+                    </div>
                   </div>
-                </SwipeableItem>
+
+                  {/* --- EXPANDED DETAILS --- */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4 animate-fade-in">
+                      <hr className="border-slate-100 mb-3" />
+
+                      {/* Full Reason */}
+                      <div className="mb-3">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1 mb-1"><NotePencil /> รายละเอียด/เหตุผล</label>
+                        <p className="text-sm text-slate-700 bg-white p-3 rounded-xl border border-slate-100 leading-relaxed">
+                          {req.type === 'adjustment' && <span className="block font-bold mb-1 text-blue-600">เวลาใหม่: {req.timeIn} - {req.timeOut}</span>}
+                          {req.reason || "- ไม่มีรายละเอียด -"}
+                        </p>
+                      </div>
+
+                      {/* Workflow Status */}
+                      <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Steps className="text-blue-500" weight="fill" />
+                          <span className="text-xs font-bold text-blue-700">สถานะการอนุมัติ (Workflow)</span>
+                        </div>
+                        <div className="space-y-2">
+                          {req.workflowSnapshot?.steps?.map((step, idx) => {
+                            const isCurrent = idx === (req.currentStepIndex || 0);
+                            const isPassed = idx < (req.currentStepIndex || 0);
+                            const isCompleted = req.status === 'approved';
+
+                            let icon = <div className="w-4 h-4 rounded-full border-2 border-slate-300" />;
+                            let textClass = "text-slate-400";
+
+                            if (req.status === 'rejected' && isCurrent) {
+                              icon = <XCircle className="text-rose-500" weight="fill" size={16} />;
+                              textClass = "text-rose-500 font-bold";
+                            } else if (isPassed || isCompleted) {
+                              icon = <CheckCircle className="text-emerald-500" weight="fill" size={16} />;
+                              textClass = "text-emerald-600 font-bold";
+                            } else if (isCurrent) {
+                              icon = <div className="w-4 h-4 rounded-full border-4 border-blue-500 animate-pulse" />;
+                              textClass = "text-blue-600 font-bold";
+                            }
+
+                            return (
+                              <div key={idx} className="flex items-center gap-3 text-xs">
+                                {icon}
+                                <span className={textClass}>{step.label || step.role}</span>
+                                {isCurrent && !isCompleted && req.status !== 'rejected' && <span className="text-[10px] bg-blue-100 text-blue-600 px-1.5 rounded-full ml-auto">รออนุมัติ</span>}
+                              </div>
+                            );
+                          })}
+                          {/* Final Success State */}
+                          {req.status === 'approved' && (
+                            <div className="flex items-center gap-3 text-xs mt-2 pt-2 border-t border-blue-100/50">
+                              <CheckCircle className="text-emerald-500" weight="fill" size={16} />
+                              <span className="text-emerald-600 font-bold">อนุมัติเสร็จสิ้น</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action Buttons (Expanded View) */}
+                      {filter === 'pending' && (
+                        <div className="grid grid-cols-2 gap-3 mt-4">
+                          <button onClick={(e) => handleAction(req, 'rejected', e)} className="py-3 rounded-xl border border-slate-200 text-slate-500 font-bold text-sm hover:bg-slate-50 active:scale-95 transition">ปฏิเสธ</button>
+                          <button onClick={(e) => handleAction(req, 'approved', e)} className="py-3 rounded-xl bg-slate-900 text-white font-bold text-sm shadow-lg hover:bg-slate-800 active:scale-95 transition">
+                            {isNextStep ? 'อนุมัติ & ส่งต่อ' : 'อนุมัติทันที'}
+                          </button>
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+                </div>
               );
             })
           )}

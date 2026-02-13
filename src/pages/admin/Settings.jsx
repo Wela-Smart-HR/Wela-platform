@@ -80,7 +80,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
+    <div className="flex flex-col min-h-full bg-[#FAFAFA] text-[#1E293B] font-sans">
 
       {/* HEADER */}
       <header className="px-6 pt-6 pb-2 z-20 bg-[#FAFAFA]/90 backdrop-blur-sm sticky top-0">
@@ -95,7 +95,7 @@ export default function Settings() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto no-scrollbar px-6 pb-6 pt-4">
+      <main className="flex-1 px-6 pb-6 pt-4">
         {dataLoading && <div className="text-center py-4 text-xs text-slate-400">กำลังโหลด...</div>}
 
         {/* TAB 1: GENERAL */}

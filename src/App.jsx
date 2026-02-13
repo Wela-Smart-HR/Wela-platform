@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ConfigProvider } from './contexts/ConfigContext';
 import { AppProvider } from './contexts/AppContext';
+import { DialogProvider } from './contexts/DialogContext';
+import { RequestModalProvider } from './contexts/RequestModalContext';
 import useSwipeBack from './hooks/useSwipeBack';
 
 // --- LAYOUTS ---
@@ -80,7 +82,11 @@ function App() {
   return (
     <AppProvider>
       <AuthProvider>
-        <AppContent />
+        <DialogProvider>
+          <RequestModalProvider>
+            <AppContent />
+          </RequestModalProvider>
+        </DialogProvider>
       </AuthProvider>
     </AppProvider>
   );

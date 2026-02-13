@@ -47,6 +47,7 @@ import { offlineService } from './offline.service';
 import { useGlobalConfig } from '../../contexts/ConfigContext';
 import { attendanceService, attendanceRepo } from '../../di/attendanceDI.js';
 import { DateUtils } from '../../shared/kernel/DateUtils.js';
+import { useTodayCheckIn } from './hooks/useTodayCheckIn';
 
 // ... (other imports)
 
@@ -59,6 +60,21 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
     const [attendanceLogs, setAttendanceLogs] = useState([]);
     const [schedules, setSchedules] = useState([]);
     const [todaySchedule, setTodaySchedule] = useState(null);
+
+    // --- Centralized Attendance State ---
+    const {
+        todayRecord: serverTodayRecord,
+        isCheckedIn: serverIsCheckedIn,
+        isStuck,
+        staleCheckIn
+    } = useTodayCheckIn(userId);
+
+    // Sync Server Record to Local State
+    useEffect(() => {
+        if (serverTodayRecord) {
+            setTodayRecord(serverTodayRecord);
+        }
+    }, [serverTodayRecord]);
 
     // --- GPS & Location State ---
     const [location, setLocation] = useState(null);
@@ -740,6 +756,11 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
         syncOfflineData,
         submitRetroRequest,  // ✅ ส่งขอแก้ไขย้อนหลัง
         getHistory,
-        reload: loadTodayRecord
+        reload: loadTodayRecord,
+
+        // Centralized exposed
+        isStuck,
+        staleCheckIn,
+        closeStaleShift: (logId, time, reason) => attendanceService.closeStaleShift(userId, logId, time, reason)
     };
 }

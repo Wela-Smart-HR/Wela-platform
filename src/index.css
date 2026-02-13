@@ -4,41 +4,85 @@
 
 /* Global Styles */
 body {
-    background-color: #FAFAFA;
-    font-family: 'Noto Sans Thai', sans-serif;
+  background-color: #FAFAFA;
+  font-family: 'Noto Sans Thai', sans-serif;
 }
-.no-scrollbar::-webkit-scrollbar { display: none; }
-.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Force Headings to use Outfit (English) + Noto (Thai) */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: 'Outfit', 'Noto Sans Thai', sans-serif;
+}
+
+/* Ensure form elements inherit font */
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
 
 /* --- Custom Styles จากต้นฉบับ --- */
 .modern-card {
-    background: white;
-    border-radius: 20px;
-    box-shadow: 0 4px 15px -5px rgba(0, 0, 0, 0.03);
-    border: 1px solid rgba(241, 245, 249, 0.6);
-    transition: transform 0.2s ease;
+  background: white;
+  border-radius: 20px;
+  box-shadow: 0 4px 15px -5px rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(241, 245, 249, 0.6);
+  transition: transform 0.2s ease;
 }
-.modern-card:active { transform: scale(0.98); }
+
+.modern-card:active {
+  transform: scale(0.98);
+}
 
 /* Animations */
-@keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-.anim-pulse { animation: pulse-soft 2s infinite; }
+@keyframes pulse-soft {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.anim-pulse {
+  animation: pulse-soft 2s infinite;
+}
 
 @layer base {
+
   /* 1. ห้ามเลือกข้อความ (ยกเว้นช่องกรอกข้อมูล) ทำให้เหมือนแอป */
   body {
-    -webkit-user-select: none; /* Chrome/Safari */
+    -webkit-user-select: none;
+    /* Chrome/Safari */
     user-select: none;
-    
+
     /* 2. ห้ามเด้งดึ๋ง (Rubber Band) เวลาลากสุดขอบจอ */
     overscroll-behavior-y: none;
-    
+
     /* 3. ลบสีเทาเวลาแตะปุ่มในมือถือ (Tap Highlight) */
     -webkit-tap-highlight-color: transparent;
   }
 
   /* 4. ช่อง Input ยังต้องเลือกข้อความได้ */
-  input, textarea {
+  input,
+  textarea {
     -webkit-user-select: text;
     user-select: text;
   }
@@ -50,67 +94,164 @@ body {
 }
 
 /* Navigation Items */
-.nav-item { transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-.nav-item span { max-width: 0; opacity: 0; overflow: hidden; transition: all 0.3s ease; white-space: nowrap; }
-.nav-item.active span { max-width: 100px; opacity: 1; margin-left: 8px; }
-.nav-item.active { background-color: white; color: #0F172A; padding: 10px 16px; border-radius: 9999px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2); }
-.nav-item:not(.active) { color: #94A3B8; background-color: transparent; padding: 10px; }
+.nav-item {
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.nav-item span {
+  max-width: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+}
+
+.nav-item.active span {
+  max-width: 100px;
+  opacity: 1;
+  margin-left: 8px;
+}
+
+.nav-item.active {
+  background-color: white;
+  color: #0F172A;
+  padding: 10px 16px;
+  border-radius: 9999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.nav-item:not(.active) {
+  color: #94A3B8;
+  background-color: transparent;
+  padding: 10px;
+}
 
 /* --- Schedule Page Styles --- */
 .date-pill {
-    min-width: 56px; height: 76px; border-radius: 18px;
-    display: flex; flex-direction: column; justify-content: center; align-items: center;
-    border: 1px solid transparent; background: white; transition: all 0.2s;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.02);
-    cursor: pointer;
+  min-width: 56px;
+  height: 76px;
+  border-radius: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  border: 1px solid transparent;
+  background: white;
+  transition: all 0.2s;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.02);
+  cursor: pointer;
 }
+
 .date-pill.active {
-    background: #0F172A; color: white;
-    box-shadow: 0 8px 15px -3px rgba(15, 23, 42, 0.2); transform: translateY(-2px);
+  background: #0F172A;
+  color: white;
+  box-shadow: 0 8px 15px -3px rgba(15, 23, 42, 0.2);
+  transform: translateY(-2px);
 }
 
 .calendar-grid {
-    display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
 }
+
 .calendar-day {
-    aspect-ratio: 1; border-radius: 12px;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    font-size: 0.8rem; position: relative; background-color: white; border: 1px solid transparent;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  position: relative;
+  background-color: white;
+  border: 1px solid transparent;
 }
+
 .calendar-day.today {
-    background-color: #EFF6FF; color: #2563EB; font-weight: bold; border: 1px solid #BFDBFE;
+  background-color: #EFF6FF;
+  color: #2563EB;
+  font-weight: bold;
+  border: 1px solid #BFDBFE;
 }
-.status-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 4px; }
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-top: 4px;
+}
 
 /* Toggle Button */
-.toggle-btn { transition: all 0.2s; }
-.toggle-btn.active { background-color: #0F172A; color: white; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-.toggle-btn:not(.active) { color: #94A3B8; background-color: transparent; }
+.toggle-btn {
+  transition: all 0.2s;
+}
+
+.toggle-btn.active {
+  background-color: #0F172A;
+  color: white;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.toggle-btn:not(.active) {
+  color: #94A3B8;
+  background-color: transparent;
+}
 
 /* --- Settings Page Styles --- */
 
 /* Toggle Switch */
-.toggle-checkbox:checked { right: 0; border-color: #10B981; }
-.toggle-checkbox:checked + .toggle-label { background-color: #10B981; }
+.toggle-checkbox:checked {
+  right: 0;
+  border-color: #10B981;
+}
+
+.toggle-checkbox:checked+.toggle-label {
+  background-color: #10B981;
+}
 
 /* Custom Range Slider */
-input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
-input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none; height: 20px; width: 20px; border-radius: 50%;
-    background: #3B82F6; cursor: pointer; margin-top: -8px; 
-    box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4); border: 2px solid white;
+input[type=range] {
+  -webkit-appearance: none;
+  width: 100%;
+  background: transparent;
 }
-input[type=range]::-webkit-slider-runnable-track { 
-    width: 100%; height: 6px; cursor: pointer; background: #E2E8F0; border-radius: 99px; 
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  background: #3B82F6;
+  cursor: pointer;
+  margin-top: -8px;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
+  border: 2px solid white;
+}
+
+input[type=range]::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  cursor: pointer;
+  background: #E2E8F0;
+  border-radius: 99px;
 }
 
 /* Tab Animation */
-.tab-btn { transition: all 0.3s; }
-.tab-btn.active { 
-    background-color: white; color: #0F172A; 
-    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); 
+.tab-btn {
+  transition: all 0.3s;
 }
-.tab-btn:not(.active) { color: #64748B; background-color: transparent; }
+
+.tab-btn.active {
+  background-color: white;
+  color: #0F172A;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.tab-btn:not(.active) {
+  color: #64748B;
+  background-color: transparent;
+}
 
 /* Animation สำหรับการเปลี่ยนหน้า */
 @keyframes fadeInUp {
@@ -118,6 +259,7 @@ input[type=range]::-webkit-slider-runnable-track {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -131,11 +273,14 @@ input[type=range]::-webkit-slider-runnable-track {
 /* 1. ท่าสำหรับบาร์ลอยขึ้น (Bar Entrance) */
 @keyframes slideUpBar {
   from {
-    transform: translateY(150%); /* เริ่มต้น: ซ่อนอยู่ใต้จอ */
+    transform: translateY(150%);
+    /* เริ่มต้น: ซ่อนอยู่ใต้จอ */
     opacity: 0;
   }
+
   to {
-    transform: translateY(0); /* สิ้นสุด: ลอยขึ้นมาที่เดิม */
+    transform: translateY(0);
+    /* สิ้นสุด: ลอยขึ้นมาที่เดิม */
     opacity: 1;
   }
 }
@@ -143,64 +288,81 @@ input[type=range]::-webkit-slider-runnable-track {
 .animate-slide-up-bar {
   /* ใช้ cubic-bezier เพื่อให้จังหวะจบมันนุ่มๆ ช้าๆ */
   animation: slideUpBar 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-  animation-delay: 0.3s; /* รอแป๊บหนึ่งค่อยโผล่มา ให้คอนเทนต์มาก่อน */
-  opacity: 0; /* เริ่มต้นซ่อนไว้ก่อน */
+  animation-delay: 0.3s;
+  /* รอแป๊บหนึ่งค่อยโผล่มา ให้คอนเทนต์มาก่อน */
+  opacity: 0;
+  /* เริ่มต้นซ่อนไว้ก่อน */
 }
 
-/* 2. ท่าสำหรับเนื้อหา (Fade In Up) - อันเดิมที่คุณมี */
-@keyframes fadeInUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.animate-fade-in-up {
-  animation: fadeInUp 0.4s ease-out forwards;
-}
+
 
 /* --- 🔥 NEW ADDITIONS --- */
 
 /* 1. Theme Transition (เปลี่ยน Dark Mode นุ่มๆ) */
-body, div, span, p, h1, h2, h3, h4, h5, h6, button {
-    transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
-                color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+body,
+div,
+span,
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+button {
+  transition: background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* 2. Skeleton Loading Animation (คลื่นวิ่งผ่าน) */
 @keyframes shimmer {
-    0% { background-position: -200% 0; }
-    100% { background-position: 200% 0; }
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
 }
+
 .skeleton {
-    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-    background-size: 200% 100%;
-    animation: shimmer 1.5s infinite linear;
-    border-radius: 8px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: 8px;
 }
+
 /* Dark Mode Skeleton */
 .dark .skeleton {
-    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
 }
 
 /* 3. Privacy Blur (สำหรับ Payslip) */
 .privacy-blur {
-    filter: blur(6px);
-    user-select: none;
-    transition: filter 0.2s ease;
-    cursor: pointer;
+  filter: blur(6px);
+  user-select: none;
+  transition: filter 0.2s ease;
+  cursor: pointer;
 }
-.privacy-blur:hover, .privacy-blur.active {
-    filter: blur(0);
+
+.privacy-blur:hover,
+.privacy-blur.active {
+  filter: blur(0);
 }
 
 /* สั่งให้ปุ่มทุกปุ่มในโลกนี้ ยุบลงเมื่อถูกกด */
 button:active {
-  transform: scale(0.96); /* ยุบนิดนึง (96% ของขนาดเดิม) */
-  transition: transform 0.1s ease; /* ขยับนุ่มๆ ไม่กระชาก */
+  transform: scale(0.96);
+  /* ยุบนิดนึง (96% ของขนาดเดิม) */
+  transition: transform 0.1s ease;
+  /* ขยับนุ่มๆ ไม่กระชาก */
 }
 
 /* ยกเว้น! ปุ่มพวกนี้ไม่ต้องยุบ (เผื่อมีปุ่มที่ไม่ควรขยับ) */
 button:disabled,
 button.no-scale,
-.tab-btn { /* ปุ่มแท็บเมนู อาจจะไม่ต้องยุบก็ได้ */
+.tab-btn {
+  /* ปุ่มแท็บเมนู อาจจะไม่ต้องยุบก็ได้ */
   transform: none !important;
 }
