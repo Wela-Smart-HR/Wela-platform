@@ -1,15 +1,21 @@
 import React, { useState } from 'react';
 import {
-    CaretLeft, CaretDown, DotsThree, ChartPieSlice, Check, Circle
+    CaretLeft, CaretDown, Trash, ChartPieSlice, Check, Circle
 } from '@phosphor-icons/react';
+import { EmployeeListSkeleton } from './PayrollSkeleton';
+import { EmptyState } from './EmptyState';
 
 export const EmployeeList = ({
     activeCycle,
     employees,
     totals,
     onBack,
-    onSelectEmployee
+    onSelectEmployee,
+    onDeleteCycle,
+    isLoading
 }) => {
+    if (isLoading) return <EmployeeListSkeleton />;
+
     const [filterStatus, setFilterStatus] = useState('all');
     const [groupBy, setGroupBy] = useState('none');
 
@@ -65,8 +71,12 @@ export const EmployeeList = ({
                                 <CaretDown size={12} weight="fill" className="text-gray-400" />
                             </div>
                         </div>
-                        <button className="w-10 h-10 rounded-full bg-white shadow-sm border border-gray-100 flex items-center justify-center text-black hover:bg-gray-50 transition-colors">
-                            <DotsThree size={20} weight="bold" />
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onDeleteCycle?.(); }}
+                            className="w-10 h-10 rounded-full bg-white shadow-sm border border-red-200 flex items-center justify-center text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                            title="ลบรอบบัญชีนี้"
+                        >
+                            <Trash size={18} weight="bold" />
                         </button>
                     </div>
 
@@ -119,75 +129,84 @@ export const EmployeeList = ({
 
                 {/* List */}
                 <div className="space-y-6">
-                    {groupedList.map((group, idx) => (
-                        <div key={idx}>
-                            {group.title && (
-                                <div className="flex justify-between items-end mb-3 px-1">
-                                    <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">{group.title}</h3>
-                                    <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md">รวม: ฿{fmt(group.total)}</span>
-                                </div>
-                            )}
-                            <div className="space-y-3">
-                                {group.items.map(emp => {
-                                    const paid = emp.paidAmount || 0;
-                                    const net = emp.financials?.net || 0;
-                                    const remaining = net - paid;
-                                    const percent = net > 0 ? (paid / net) * 100 : 0;
+                    {filteredEmployees.length === 0 ? (
+                        <div className="py-12 bg-white rounded-2xl border border-dashed border-gray-200">
+                            <EmptyState
+                                title="ไม่พบรายชื่อพนักงาน"
+                                message={filterStatus !== 'all' ? "ลองเปลี่ยนตัวกรองสถานะ" : "ยังไม่มีพนักงานในรอบบัญชีนี้"}
+                            />
+                        </div>
+                    ) : (
+                        groupedList.map((group, idx) => (
+                            <div key={idx}>
+                                {group.title && (
+                                    <div className="flex justify-between items-end mb-3 px-1">
+                                        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">{group.title}</h3>
+                                        <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md">รวม: ฿{fmt(group.total)}</span>
+                                    </div>
+                                )}
+                                <div className="space-y-3">
+                                    {group.items.map(emp => {
+                                        const paid = emp.paidAmount || 0;
+                                        const net = emp.financials?.net || 0;
+                                        const remaining = net - paid;
+                                        const percent = net > 0 ? (paid / net) * 100 : 0;
 
-                                    return (
-                                        <div
-                                            key={emp.id}
-                                            onClick={() => onSelectEmployee(emp)}
-                                            className="bg-white p-4 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.02)] border border-transparent hover:border-gray-200 hover:shadow-md transition-all cursor-pointer relative overflow-hidden active:scale-[0.99]"
-                                        >
-                                            <div className="flex justify-between items-start mb-3">
-                                                <div className="flex items-center gap-3">
-                                                    <img
-                                                        src={emp.employeeSnapshot?.avatar || `https://ui-avatars.com/api/?name=${emp.employeeSnapshot?.name}&background=random`}
-                                                        className="w-10 h-10 rounded-full object-cover bg-gray-100 border border-gray-50"
-                                                        alt=""
-                                                    />
-                                                    <div>
-                                                        <h3 className="font-bold text-sm text-gray-900">{emp.employeeSnapshot?.name}</h3>
-                                                        <div className="flex gap-2 mt-0.5">
-                                                            <span className="text-[10px] text-gray-500 font-medium">{emp.employeeSnapshot?.role}</span>
+                                        return (
+                                            <div
+                                                key={emp.id}
+                                                onClick={() => onSelectEmployee(emp)}
+                                                className="bg-white p-4 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.02)] border border-transparent hover:border-gray-200 hover:shadow-md transition-all cursor-pointer relative overflow-hidden active:scale-[0.99]"
+                                            >
+                                                <div className="flex justify-between items-start mb-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <img
+                                                            src={emp.employeeSnapshot?.avatar || `https://ui-avatars.com/api/?name=${emp.employeeSnapshot?.name}&background=random`}
+                                                            className="w-10 h-10 rounded-full object-cover bg-gray-100 border border-gray-50"
+                                                            alt=""
+                                                        />
+                                                        <div>
+                                                            <h3 className="font-bold text-sm text-gray-900">{emp.employeeSnapshot?.name}</h3>
+                                                            <div className="flex gap-2 mt-0.5">
+                                                                <span className="text-[10px] text-gray-500 font-medium">{emp.employeeSnapshot?.role}</span>
+                                                            </div>
                                                         </div>
                                                     </div>
+                                                    <div className="text-right">
+                                                        <p className="text-xs text-gray-400 font-medium mb-0.5">ยอดสุทธิ</p>
+                                                        <p className="text-sm font-bold text-gray-900">฿{fmt(net)}</p>
+                                                    </div>
                                                 </div>
-                                                <div className="text-right">
-                                                    <p className="text-xs text-gray-400 font-medium mb-0.5">ยอดสุทธิ</p>
-                                                    <p className="text-sm font-bold text-gray-900">฿{fmt(net)}</p>
-                                                </div>
-                                            </div>
 
-                                            {/* Payment Bar */}
-                                            <div className="bg-gray-50 rounded-lg p-2.5 flex items-center justify-between border border-gray-100">
-                                                <div className="flex flex-col gap-1 w-full mr-4">
-                                                    <div className="flex justify-between text-[10px] font-bold">
-                                                        <span className="text-gray-500">จ่ายแล้ว: ฿{fmt(paid)}</span>
-                                                        <span className={remaining > 0 ? 'text-red-500' : 'text-green-500'}>
-                                                            {remaining > 0 ? `ค้าง: ฿${fmt(remaining)}` : 'ครบแล้ว'}
-                                                        </span>
+                                                {/* Payment Bar */}
+                                                <div className="bg-gray-50 rounded-lg p-2.5 flex items-center justify-between border border-gray-100">
+                                                    <div className="flex flex-col gap-1 w-full mr-4">
+                                                        <div className="flex justify-between text-[10px] font-bold">
+                                                            <span className="text-gray-500">จ่ายแล้ว: ฿{fmt(paid)}</span>
+                                                            <span className={remaining > 0 ? 'text-red-500' : 'text-green-500'}>
+                                                                {remaining > 0 ? `ค้าง: ฿${fmt(remaining)}` : 'ครบแล้ว'}
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                                                            <div
+                                                                className={`h-full rounded-full transition-all duration-500 ${getProgressColor(emp.paymentStatus)}`}
+                                                                style={{ width: `${percent}%` }}
+                                                            ></div>
+                                                        </div>
                                                     </div>
-                                                    <div className="w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
-                                                        <div
-                                                            className={`h-full rounded-full transition-all duration-500 ${getProgressColor(emp.paymentStatus)}`}
-                                                            style={{ width: `${percent}%` }}
-                                                        ></div>
+                                                    <div className="shrink-0">
+                                                        {emp.paymentStatus === 'paid' && <div className="w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center shadow-sm"><Check size={12} weight="bold" /></div>}
+                                                        {emp.paymentStatus === 'partial' && <div className="w-6 h-6 rounded-full bg-orange-100 text-orange-500 border border-orange-200 flex items-center justify-center"><ChartPieSlice size={12} weight="bold" /></div>}
+                                                        {emp.paymentStatus === 'pending' && <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center"><Circle size={12} weight="bold" /></div>}
                                                     </div>
-                                                </div>
-                                                <div className="shrink-0">
-                                                    {emp.paymentStatus === 'paid' && <div className="w-6 h-6 rounded-full bg-green-500 text-white flex items-center justify-center shadow-sm"><Check size={12} weight="bold" /></div>}
-                                                    {emp.paymentStatus === 'partial' && <div className="w-6 h-6 rounded-full bg-orange-100 text-orange-500 border border-orange-200 flex items-center justify-center"><ChartPieSlice size={12} weight="bold" /></div>}
-                                                    {emp.paymentStatus === 'pending' && <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center"><Circle size={12} weight="bold" /></div>}
                                                 </div>
                                             </div>
-                                        </div>
-                                    );
-                                })}
+                                        );
+                                    })}
+                                </div>
                             </div>
-                        </div>
-                    ))}
+                        ))
+                    )}
                 </div>
             </main>
         </div>

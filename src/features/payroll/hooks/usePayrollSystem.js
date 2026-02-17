@@ -12,6 +12,7 @@ export const usePayrollSystem = () => {
     const [activeCycle, setActiveCycle] = useState(null);
     const [employees, setEmployees] = useState([]); // List for active cycle
     const [cycles, setCycles] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
 
     // UI State
     const [isNewCycleOpen, setIsNewCycleOpen] = useState(false);
@@ -25,12 +26,14 @@ export const usePayrollSystem = () => {
     }, [companyId]);
 
     const loadCycles = async () => {
+        setIsLoading(true);
         try {
             const data = await PayrollRepo.getCycles(companyId);
             setCycles(data);
         } catch (error) {
             console.error("Load Cycles Error:", error);
-            alert("Failed to load cycles");
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -48,19 +51,34 @@ export const usePayrollSystem = () => {
 
     const handleSelectCycle = async (cycle) => {
         setActiveCycle(cycle);
+        setIsLoading(true);
+        try {
+            const data = await PayrollRepo.getPayslips(cycle.id);
+            setEmployees(data);
+            setView('list');
+        } catch (error) {
+            console.error("Load Payslips Error:", error);
+            alert("Failed to load payslips");
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
-        // Mocking employee fetch for now since we haven't implemented full batch creation yet.
-        // In real flow, createCycle would generate payslips, here we'd fetch them based on cycleId.
-        // For prototype visualization, let's use some dummy data if empty.
-        // TODO: Implement `PayrollRepo.getPayslips(cycle.id)`
+    const handleDeleteCycle = async () => {
+        if (!activeCycle) return;
+        if (!confirm(`ลบรอบ "${activeCycle.title || activeCycle.id}" และ Payslip ทั้งหมด?\n\n⚠️ การกระทำนี้ไม่สามารถย้อนกลับได้!`)) return;
 
-        // TEMPORARY: Dummy Data for UI Check
-        setEmployees([
-            { id: '1', employeeSnapshot: { name: 'สมชาย', role: 'Manager', type: 'monthly', department: 'IT' }, financials: { net: 25000 }, paidAmount: 0, paymentStatus: 'pending', payments: [] },
-            { id: '2', employeeSnapshot: { name: 'สมหญิง', role: 'Staff', type: 'daily', department: 'Sales' }, financials: { net: 15000 }, paidAmount: 5000, paymentStatus: 'partial', payments: [{ id: 1, amount: 5000, date: '2026-02-17' }] },
-        ]);
-
-        setView('list');
+        try {
+            await PayrollRepo.deleteCycle(activeCycle.id);
+            setActiveCycle(null);
+            setEmployees([]);
+            setView('cycles');
+            await loadCycles();
+            alert('ลบรอบบัญชีเรียบร้อยแล้ว!');
+        } catch (error) {
+            console.error("Delete Cycle Error:", error);
+            alert("ลบไม่สำเร็จ: " + error.message);
+        }
     };
 
     const handleSaveEmp = async (updatedForm) => {
@@ -139,12 +157,13 @@ export const usePayrollSystem = () => {
     };
 
     return {
-        state: { view, activeCycle, employees, cycles, totals, isNewCycleOpen, activeEmp, isPaymentOpen },
+        state: { view, activeCycle, employees, cycles, totals, isNewCycleOpen, activeEmp, isPaymentOpen, isLoading },
         actions: {
             setView,
             setIsNewCycleOpen,
             handleCreateCycle,
             handleSelectCycle,
+            handleDeleteCycle,
             setActiveEmp,
             setIsPaymentOpen,
             handleSaveEmp,
