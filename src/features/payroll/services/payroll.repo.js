@@ -269,5 +269,14 @@ export const PayrollRepo = {
 
         // Ideally should lock all payslips too, but usually UI restriction is enough for non-critical
         await batch.commit();
+    },
+    async getStaffCount(companyId) {
+        const q = query(
+            collection(db, 'users'),
+            where('companyId', '==', companyId),
+            where('active', '!=', false)
+        );
+        const snap = await getDocs(q);
+        return snap.size;
     }
 };

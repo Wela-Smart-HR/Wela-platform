@@ -147,13 +147,30 @@ export const usePayrollSystem = () => {
         setActiveEmp(updatedEmp);
     };
 
-    // Computed Totals
+    // Data Fetching
+    useEffect(() => {
+        if (!companyId) return;
+        loadCycles();
+        loadStaffCount();
+    }, [companyId]);
+
+    const loadStaffCount = async () => {
+        try {
+            const snap = await PayrollRepo.getStaffCount(companyId);
+            setStaffCount(snap);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    // ... inside usePayrollSystem
+    const [staffCount, setStaffCount] = useState(0);
+
+    // ... inside computed totals
     const totals = {
         ytdTotal: cycles.reduce((acc, c) => acc + (c.summary?.totalPaid || 0), 0),
-        staffCount: employees.length || 0,
-        totalNet: employees.reduce((acc, e) => acc + (e.financials?.net || 0), 0),
-        totalRemaining: employees.reduce((acc, e) => acc + ((e.financials?.net || 0) - (e.paidAmount || 0)), 0),
-        totalPaid: employees.reduce((acc, e) => acc + (e.paidAmount || 0), 0),
+        staffCount: staffCount, // Use real count
+        // ...
     };
 
     return {

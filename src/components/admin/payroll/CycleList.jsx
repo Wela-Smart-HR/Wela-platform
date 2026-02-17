@@ -51,13 +51,22 @@ export const CycleList = ({
             <header className="sticky top-0 z-40 px-5 pt-4 pb-4 bg-[#F2F2F7]/95 backdrop-blur-xl border-b border-black/5 transition-all">
                 <div className="max-w-2xl mx-auto w-full flex justify-between items-center">
                     <h1 className="text-3xl font-bold text-black tracking-tight">รอบเงินเดือน</h1>
-                    <button className="w-10 h-10 rounded-full bg-white shadow-sm border border-gray-100 flex items-center justify-center text-gray-500 hover:text-black transition-colors active:scale-95">
-                        <Gear weight="bold" size={20} />
-                    </button>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={onCreateCycle}
+                            className="w-10 h-10 rounded-full bg-[#007AFF] text-white flex items-center justify-center shadow-blue-500/20 shadow-lg hover:scale-105 active:scale-95 transition-all"
+                        >
+                            <Plus weight="bold" size={20} />
+                        </button>
+                        <button className="w-10 h-10 rounded-full bg-white shadow-sm border border-gray-100 flex items-center justify-center text-gray-500 hover:text-black transition-colors active:scale-95">
+                            <Gear weight="bold" size={20} />
+                        </button>
+                    </div>
                 </div>
             </header>
 
             <main className="px-5 pt-6 w-full max-w-2xl mx-auto">
+                {/* ... content ... */}
 
                 {/* Dashboard Overview */}
                 <div className="grid grid-cols-2 gap-3 mb-8">
@@ -162,16 +171,6 @@ export const CycleList = ({
                 </div>
             </main>
 
-            {/* Fab - Positioned higher to match design & reset z-index context */}
-            <div className="fixed bottom-24 left-0 right-0 z-[100] flex justify-center pointer-events-none">
-                <button
-                    onClick={onCreateCycle}
-                    className="pointer-events-auto bg-[#007AFF] text-white pl-8 pr-10 py-4 rounded-full font-bold shadow-2xl shadow-blue-500/30 flex items-center gap-3 hover:scale-105 active:scale-95 hover:bg-blue-600 transition-all ring-4 ring-white/20 backdrop-blur-md"
-                >
-                    <div className="bg-white/20 w-8 h-8 flex items-center justify-center rounded-full"><Plus size={20} weight="bold" /></div>
-                    <span className="text-lg">เปิดรอบจ่ายใหม่</span>
-                </button>
-            </div>
         </div>
     );
 };
