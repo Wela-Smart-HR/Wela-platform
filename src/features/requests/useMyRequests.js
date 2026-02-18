@@ -90,6 +90,56 @@ export function useMyRequests(currentUser) {
     };
 
     /**
+     * Submit Unscheduled Work Request
+     * สำหรับกรณีพนักงานทำงานแต่ไม่มีกะงาน (ไม่มี schedule)
+     * เมื่ออนุมัติแล้ว ระบบจะสร้าง schedule doc ย้อนหลัง
+     * 
+     * @param {Object} workData - { date, timeIn, timeOut, reason }
+     * @returns {Promise<{ id, documentNo }>}
+     */
+    const submitUnscheduledWorkRequest = async (workData) => {
+        try {
+            // === Guard Clauses (Bulletproof) ===
+            if (!workData.date) throw new Error("กรุณาระบุวันที่");
+            if (!workData.timeIn) throw new Error("กรุณาระบุเวลาเข้างาน");
+            if (!workData.timeOut) throw new Error("กรุณาระบุเวลาออกงาน");
+
+            // Validate: timeIn < timeOut (ป้องกันใส่สลับกัน)
+            // รองรับกะข้ามวัน: ถ้า timeOut < timeIn → ถือว่าข้ามวัน ผ่านได้
+            // แต่ถ้าเท่ากัน → ผิดแน่นอน
+            if (workData.timeIn === workData.timeOut) {
+                throw new Error("เวลาเข้างานและออกงานต้องไม่เท่ากัน");
+            }
+
+            // Validate: ห้ามส่งล่วงหน้า (วันที่ต้องไม่เกินวันนี้)
+            const today = new Date();
+            const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+            if (workData.date > todayStr) {
+                throw new Error("ไม่สามารถส่งคำขอสำหรับวันในอนาคตได้");
+            }
+
+            setError(null);
+
+            const result = await requestsRepo.createRequest({
+                companyId: currentUser.companyId,
+                userId: currentUser.uid,
+                userName: currentUser.displayName || currentUser.email,
+                type: 'unscheduled-work',
+                targetDate: workData.date,
+                timeIn: workData.timeIn,
+                timeOut: workData.timeOut,
+                reason: workData.reason || 'ไม่มีกะงาน ขออนุมัติวันทำงาน',
+                date: workData.date, // Backward compat for queries
+            });
+            return result; // { id, documentNo }
+        } catch (err) {
+            console.error('Error submitting unscheduled work request:', err);
+            setError(err.message);
+            throw err;
+        }
+    };
+
+    /**
      * Cancel Request (only if pending)
      */
     const cancelRequest = async (requestId) => {
@@ -114,6 +164,7 @@ export function useMyRequests(currentUser) {
         error,
         submitLeaveRequest,
         submitAdjustmentRequest,
+        submitUnscheduledWorkRequest,
         cancelRequest,
     };
 }

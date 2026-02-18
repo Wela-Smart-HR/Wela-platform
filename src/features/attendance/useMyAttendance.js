@@ -706,12 +706,11 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
                 userName: data.userName || '',
                 type: 'retro',
                 status: 'pending',
-                data: {
-                    date: data.date,
-                    timeIn: data.timeIn,
-                    timeOut: data.timeOut,
-                    location: data.location || ''
-                },
+                // ✅ FIX: Store at top-level (consistent with RequestForm.jsx & approveRequest)
+                date: data.date,
+                timeIn: data.timeIn,
+                timeOut: data.timeOut,
+                location: data.location || '',
                 reason: data.reason,
                 createdAt: serverTimestamp()
             });

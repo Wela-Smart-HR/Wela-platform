@@ -14,6 +14,7 @@ import {
 import { useSalaryCalculator } from '../../hooks/useSalaryCalculator';
 import { useDialog } from '../../contexts/DialogContext';
 import { useMyAttendance } from '../../features/attendance/useMyAttendance';
+import { useMyRequests } from '../../features/requests/useMyRequests';
 
 // Components (Lazy Load for Performance)
 const AttendanceMiniMap = React.lazy(() => import('../../components/employee/AttendanceMiniMap'));
@@ -97,6 +98,11 @@ export default function TimeAttendance() {
     const [isCloseShiftModalOpen, setIsCloseShiftModalOpen] = useState(false);
     const [closeShiftForm, setCloseShiftForm] = useState({ date: '', outTime: '', reason: '' });
 
+    // Unscheduled Work Request Modal State
+    const [isUnscheduledModalOpen, setIsUnscheduledModalOpen] = useState(false);
+    const todayDateStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+    const [unscheduledForm, setUnscheduledForm] = useState({ date: todayDateStr, timeIn: '', timeOut: '', reason: '' });
+
     const [showGreetingPopup, setShowGreetingPopup] = useState(false);
     const [greetingMessage, setGreetingMessage] = useState({ title: '', text: '', isLate: false, type: 'in' });
     const popupTimeoutRef = useRef(null);
@@ -111,6 +117,9 @@ export default function TimeAttendance() {
         currentMonth,
         deductionConfig.employmentType
     );
+
+    // Unscheduled Work Request Hook
+    const { submitUnscheduledWorkRequest } = useMyRequests(currentUser);
 
     const sortedLogs = useMemo(() => {
         return dailyBreakdown
@@ -203,6 +212,33 @@ export default function TimeAttendance() {
         }
     };
 
+    // --- Unscheduled Work Request Handler ---
+    const handleUnscheduledWorkSubmit = async () => {
+        if (!unscheduledForm.date || !unscheduledForm.timeIn || !unscheduledForm.timeOut) {
+            return dialog.showAlert("กรุณากรอกวันที่ และเวลาเข้า-ออกงาน", "ข้อมูลไม่ครบ", "warning");
+        }
+        setClocking(true);
+        try {
+            const result = await submitUnscheduledWorkRequest({
+                date: unscheduledForm.date,
+                timeIn: unscheduledForm.timeIn,
+                timeOut: unscheduledForm.timeOut,
+                reason: unscheduledForm.reason || 'ไม่มีกะงาน ขออนุมัติวันทำงาน',
+            });
+            await dialog.showAlert(
+                `ส่งคำขอเรียบร้อยแล้ว (${result.documentNo})\nรอ Admin อนุมัติ`,
+                "สำเร็จ",
+                "success"
+            );
+            setIsUnscheduledModalOpen(false);
+            setUnscheduledForm({ date: todayDateStr, timeIn: '', timeOut: '', reason: '' });
+        } catch (err) {
+            dialog.showAlert(err.message, "Error", "error");
+        } finally {
+            setClocking(false);
+        }
+    };
+
     const handleCloseShiftSubmit = async () => {
         if (!closeShiftForm.outTime || !closeShiftForm.reason || !closeShiftForm.date) {
             dialog.showAlert("กรุณากรอกข้อมูลให้ครบถ้วน", "ข้อมูลไม่ครบ", "warning");
@@ -279,12 +315,24 @@ export default function TimeAttendance() {
 
                     {/* Shift Info & Status */}
                     <div className="flex items-center justify-center gap-2 w-full">
-                        <div className="flex items-center gap-2 bg-white/60 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white/50 shadow-sm">
-                            <Briefcase size={14} className="text-slate-500" weight="duotone" />
-                            <span className="text-[10px] font-bold text-slate-600">
-                                {todaySchedule ? `${todaySchedule.startTime} - ${todaySchedule.endTime}` : "No shift"}
-                            </span>
-                        </div>
+                        {todaySchedule ? (
+                            <div className="flex items-center gap-2 bg-white/60 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white/50 shadow-sm">
+                                <Briefcase size={14} className="text-slate-500" weight="duotone" />
+                                <span className="text-[10px] font-bold text-slate-600">
+                                    {`${todaySchedule.startTime} - ${todaySchedule.endTime}`}
+                                </span>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => setIsUnscheduledModalOpen(true)}
+                                className="flex items-center gap-2 bg-amber-50/80 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-amber-200 shadow-sm hover:bg-amber-100 active:scale-95 transition-all cursor-pointer"
+                            >
+                                <WarningCircle size={14} className="text-amber-500" weight="fill" />
+                                <span className="text-[10px] font-bold text-amber-700">
+                                    No shift · ขอรับรองวันทำงาน
+                                </span>
+                            </button>
+                        )}
                         <div className="flex items-center gap-1">
                             <div
                                 onClick={() => { retryGps(); setShowMap(true); }}
@@ -450,6 +498,57 @@ export default function TimeAttendance() {
                                 <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Date</label><input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.date} onChange={(e) => setRetroForm({ ...retroForm, date: e.target.value })} /></div>
                                 <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Reason</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm text-slate-800 outline-none resize-none h-24 focus:ring-2 focus:ring-blue-100" placeholder="Why are you adjusting?" value={retroForm.reason} onChange={(e) => setRetroForm({ ...retroForm, reason: e.target.value })}></textarea></div>
                                 <div className="pt-4 pb-4"><button onClick={handleRetroSubmit} disabled={clocking} className="w-full bg-[#007AFF] text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-blue-500/20 active:scale-95 transition">Send Request</button></div>
+                            </div>
+                        </div>
+                    </div>, document.body
+                )
+            }
+
+            {/* === Unscheduled Work Request Modal === */}
+            {
+                isUnscheduledModalOpen && createPortal(
+                    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center font-sans">
+                        <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={() => setIsUnscheduledModalOpen(false)}></div>
+                        <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col max-h-[90vh] animate-slide-up overflow-hidden">
+                            <div className="px-6 pt-6 pb-4 flex justify-between items-center shrink-0">
+                                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                                    <Briefcase weight="duotone" className="text-amber-500" /> ขอรับรองวันทำงาน
+                                </h2>
+                                <button onClick={() => setIsUnscheduledModalOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 flex items-center justify-center"><X weight="bold" /></button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
+                                {/* Info Banner */}
+                                <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex gap-3">
+                                    <WarningCircle weight="fill" size={20} className="text-amber-500 shrink-0 mt-0.5" />
+                                    <p className="text-xs text-amber-700 leading-relaxed">
+                                        คุณไม่มีกะงานสำหรับวันนี้ กรุณากรอกเวลาที่ทำงานจริง แล้วส่งคำขอให้ Admin อนุมัติ
+                                        เมื่ออนุมัติแล้วระบบจะบันทึกเป็นวันทำงานและคำนวณเงินเดือนให้
+                                    </p>
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">วันที่ <span className="text-red-400">*</span></label>
+                                    <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-100" value={unscheduledForm.date} onChange={(e) => setUnscheduledForm({ ...unscheduledForm, date: e.target.value })} />
+                                </div>
+                                <div className="flex gap-4">
+                                    <div className="flex-1">
+                                        <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">เวลาเข้างาน <span className="text-red-400">*</span></label>
+                                        <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-100" value={unscheduledForm.timeIn} onChange={(e) => setUnscheduledForm({ ...unscheduledForm, timeIn: e.target.value })} />
+                                    </div>
+                                    <div className="flex-1">
+                                        <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">เวลาออกงาน <span className="text-red-400">*</span></label>
+                                        <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-100" value={unscheduledForm.timeOut} onChange={(e) => setUnscheduledForm({ ...unscheduledForm, timeOut: e.target.value })} />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">เหตุผล</label>
+                                    <textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm text-slate-800 outline-none resize-none h-24 focus:ring-2 focus:ring-amber-100" placeholder="เช่น มาทำงานแทนเพื่อนร่วมงาน, งานด่วน" value={unscheduledForm.reason} onChange={(e) => setUnscheduledForm({ ...unscheduledForm, reason: e.target.value })}></textarea>
+                                </div>
+                                <div className="pt-4 pb-4">
+                                    <button onClick={handleUnscheduledWorkSubmit} disabled={clocking} className="w-full bg-amber-500 text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-amber-500/20 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+                                        {clocking ? <Crosshair className="animate-spin" size={18} /> : <CheckCircle weight="bold" size={18} />}
+                                        ส่งคำขออนุมัติ
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>, document.body

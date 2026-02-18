@@ -32,9 +32,16 @@ export function useTodayCheckIn(userId) {
 
         // 1. Query Last Action (Limit 1, Descending)
         // We don't filter by date here because we need to know the *latest* state regardless of when it happened.
+        // 1. Query Last Action (Limit 1, Descending)
+        // Optimization: Limit to last 7 days to enable Range Index and avoid full scan
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
         const q = query(
             collection(db, "attendance_logs"),
             where("employee_id", "==", userId),
+            where("clock_in", ">=", sevenDaysAgo.toISOString()),
+            where("clock_in", "<", "3000-01-01"), // Filter out invalid dates like "undefined..."
             orderBy("clock_in", "desc"),
             limit(1)
         );
@@ -112,6 +119,17 @@ export function useTodayCheckIn(userId) {
 
                     // In both cases, isCheckedIn is false.
                     isCheckedIn = false;
+                }
+
+                // === Contextual Filtering (Fix for Dashboard) ===
+                // If the latest record is from a previous business day and is COMPLETED (clocked out),
+                // it should NOT be returned as 'todayRecord'. 
+                // (e.g. Today is 18th, latest record is 16th -> Should show empty, not 16th)
+                const todayBusinessDate = DateUtils.getBusinessDate(new Date(), 4); // "YYYY-MM-DD"
+                const recordBusinessDate = DateUtils.getBusinessDate(clockInTime, 4);
+
+                if (recordBusinessDate < todayBusinessDate && clockOutTime) {
+                    todayRecord = null;
                 }
 
                 setStatus({

@@ -200,21 +200,91 @@ export const requestsRepo = {
                         // (Stats update omitted for brevity, assume handled by schedule trigger or add back if critical)
                     }
 
-                    // Case B: Adjustment
+                    // Case B: Adjustment / Retro
                     if (prevReq.type === 'attendance-adjustment' || prevReq.type === 'retro') {
-                        // ... (Logic for updating attendance_logs)
-                        // For brevity, using simplified logic. In real PROD, copy the huge block from previous version.
+                        // ✅ FIX: retro requests store data in nested `data` object
+                        // while attendance-adjustment stores at top-level.
+                        // Support both formats with fallback.
+                        const nestedData = prevReq.data || {};
+                        const effectiveDate = prevReq.targetDate || nestedData.date || prevReq.date;
+                        const timeIn = nestedData.timeIn || prevReq.timeIn;
+                        const timeOut = nestedData.timeOut || prevReq.timeOut;
+
+                        if (!effectiveDate) {
+                            console.error('[approveRequest] Missing effectiveDate for adjustment');
+                        }
+
+                        // ✅ FIX: Use +07:00 (Asia/Bangkok) instead of Z (UTC)
+                        // Input timeIn/timeOut are local Thai times (e.g. "08:30")
+                        // Appending Z would shift them by -7 hours causing wrong display
+                        const clockInISO = (effectiveDate && timeIn)
+                            ? `${effectiveDate}T${timeIn}:00+07:00`
+                            : null;
+                        const clockOutISO = (effectiveDate && timeOut)
+                            ? `${effectiveDate}T${timeOut}:00+07:00`
+                            : null;
+
+                        const newLogRef = doc(collection(db, 'attendance_logs'));
+                        const logData = {
+                            employee_id: prevReq.userId,
+                            company_id: prevReq.companyId,
+                            status: 'adjusted',
+                            note: `Approved Ref: ${prevReq.documentNo}`,
+                            updated_at: new Date().toISOString()
+                        };
+                        if (clockInISO) logData.clock_in = clockInISO;
+                        if (clockOutISO) logData.clock_out = clockOutISO;
+
+                        transaction.set(newLogRef, logData);
+                    }
+
+                    // Case C: Unscheduled Work (ขออนุมัติวันทำงานพิเศษ)
+                    // เมื่ออนุมัติ → สร้าง schedule doc (ให้ระบบ Payroll มองเห็นเป็นวันทำงาน)
+                    //            → สร้าง attendance_log (บันทึกเวลาเข้า-ออกจริง)
+                    if (prevReq.type === 'unscheduled-work') {
                         const effectiveDate = prevReq.targetDate || prevReq.date;
-                        // Find existing log if any (simplified query not possible in strict transaction without known ID)
-                        // Assuming we create NEW log for adjustment as it's safer
+                        const timeIn = prevReq.timeIn;
+                        const timeOut = prevReq.timeOut;
+
+                        // === Guard: ต้องมี date, timeIn, timeOut ===
+                        if (!effectiveDate) {
+                            console.error('[approveRequest] Missing effectiveDate for unscheduled-work');
+                            throw new Error('ข้อมูลวันที่ไม่ครบ ไม่สามารถอนุมัติได้');
+                        }
+                        if (!timeIn || !timeOut) {
+                            console.error('[approveRequest] Missing timeIn/timeOut for unscheduled-work');
+                            throw new Error('ข้อมูลเวลาเข้า/ออกงานไม่ครบ ไม่สามารถอนุมัติได้');
+                        }
+
+                        // 1. สร้าง Schedule Doc (deterministic ID → ป้องกันซ้ำ, merge → idempotent)
+                        const scheduleId = `${prevReq.userId}_${effectiveDate}`;
+                        const scheduleRef = doc(db, 'schedules', scheduleId);
+                        transaction.set(scheduleRef, {
+                            userId: prevReq.userId,
+                            companyId: prevReq.companyId,
+                            date: effectiveDate,
+                            startTime: timeIn,
+                            endTime: timeOut,
+                            type: 'work',
+                            shiftCode: 'EXTRA',
+                            color: 'amber',
+                            note: `อนุมัติจาก: ${prevReq.documentNo} | ${prevReq.reason || ''}`.trim(),
+                            createdAt: serverTimestamp(),
+                            userName: prevReq.userName,
+                        }, { merge: true });
+
+                        // 2. สร้าง Attendance Log (ใช้ +07:00 → Bangkok TZ)
+                        const clockInISO = `${effectiveDate}T${timeIn}:00+07:00`;
+                        const clockOutISO = `${effectiveDate}T${timeOut}:00+07:00`;
+
                         const newLogRef = doc(collection(db, 'attendance_logs'));
                         transaction.set(newLogRef, {
                             employee_id: prevReq.userId,
                             company_id: prevReq.companyId,
-                            clock_in: `${effectiveDate}T${prevReq.timeIn}:00.000Z`,
-                            clock_out: `${effectiveDate}T${prevReq.timeOut}:00.000Z`,
-                            status: 'adjusted',
-                            note: `Approved Ref: ${prevReq.documentNo}`,
+                            clock_in: clockInISO,
+                            clock_out: clockOutISO,
+                            status: 'approved-extra',
+                            note: `Approved Unscheduled Work Ref: ${prevReq.documentNo}`,
                             updated_at: new Date().toISOString()
                         });
                     }

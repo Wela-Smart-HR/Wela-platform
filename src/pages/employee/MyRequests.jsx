@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   FileText, CheckCircle, XCircle,
   Plus, X, AirplaneTilt, Timer, CalendarBlank, CaretLeft,
-  Clock, ArrowRight, Trash, CaretDown, NotePencil, Steps, Funnel, Hourglass
+  Clock, ArrowRight, Trash, CaretDown, NotePencil, Steps, Funnel, Hourglass, Briefcase
 } from '@phosphor-icons/react';
 
 // --- SUB-COMPONENT: TIMELINE ---
@@ -198,14 +198,14 @@ export default function MyRequests() {
                 <div className="flex items-center gap-4">
                   {/* ICON: Status-based Background */}
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 transition-colors duration-300 ${statusColor}`}>
-                    {req.type === 'leave' ? <AirplaneTilt weight="duotone" size={24} /> : <Timer weight="duotone" size={24} />}
+                    {req.type === 'leave' ? <AirplaneTilt weight="duotone" size={24} /> : req.type === 'unscheduled-work' ? <Briefcase weight="duotone" size={24} /> : <Timer weight="duotone" size={24} />}
                   </div>
 
                   {/* CONTENT: Simple & Clean */}
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start">
                       <h3 className="text-base font-bold text-[#0F172A] leading-tight truncate pr-2">
-                        {req.type === 'leave' ? (req.leaveType || 'Leave Request') : 'Time Adjustment'}
+                        {req.type === 'leave' ? (req.leaveType || 'Leave Request') : req.type === 'unscheduled-work' ? 'ขอรับรองวันทำงาน' : 'Time Adjustment'}
                       </h3>
                       {/* Date Badge */}
                       <div className="text-[11px] font-bold text-slate-400 bg-slate-50 px-2 py-1 rounded-lg shrink-0">
@@ -234,12 +234,13 @@ export default function MyRequests() {
                 {/* Expanded Content */}
                 {isExpanded && (
                   <div className="mt-5 pt-5 border-t border-slate-50 animate-fade-in">
-                    {req.type === 'adjustment' && (
+                    {/* ✅ FIX: Match all time adjustment types + fallback for nested data */}
+                    {(req.type === 'attendance-adjustment' || req.type === 'retro' || req.type === 'adjustment') && (
                       <div className="mb-3 p-3 bg-slate-50 rounded-xl flex items-center gap-3">
                         <div className="text-slate-400"><Clock size={20} weight="duotone" /></div>
                         <div>
                           <p className="text-[10px] font-bold text-slate-400 uppercase">New Time</p>
-                          <p className="text-sm font-bold text-slate-700">{req.timeIn} - {req.timeOut}</p>
+                          <p className="text-sm font-bold text-slate-700">{req.timeIn || req.data?.timeIn || '-'} - {req.timeOut || req.data?.timeOut || '-'}</p>
                         </div>
                       </div>
                     )}

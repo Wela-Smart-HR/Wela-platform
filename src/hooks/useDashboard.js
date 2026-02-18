@@ -6,6 +6,10 @@ import { attendanceService } from '../di/attendanceDI';
 
 export function useDashboard(currentUser) {
   // --- STATE ข้อมูล Dashboard ---
+  const [absentAlert, setAbsentAlert] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
   // --- 1. NEW Centralized Logic ---
   const {
     todayRecord: hookRecord,

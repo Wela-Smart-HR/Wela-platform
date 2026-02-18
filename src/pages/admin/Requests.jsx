@@ -86,12 +86,14 @@ export default function Requests() {
 
   const getTypeStyle = (type) => {
     if (type === 'unscheduled_alert') return 'text-rose-600';
+    if (type === 'unscheduled-work') return 'text-amber-600';
     if (type === 'leave') return 'text-orange-500';
     return 'text-blue-600';
   };
 
   const getTypeLabel = (req) => { // Updated to take whole req object
     if (req.type === 'unscheduled_alert') return 'ด่วน! นอกกะ';
+    if (req.type === 'unscheduled-work') return 'ขอรับรองวันทำงาน';
     if (req.type === 'leave') return req.leaveType || 'ลา (ไม่ระบุ)';
     return 'แก้เวลา';
   };
@@ -157,8 +159,8 @@ export default function Requests() {
                           {(req.userProfile?.displayName || req.userName || '?').charAt(0).toUpperCase()}
                         </div>
                       )}
-                      <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white flex items-center justify-center text-white text-[10px] shadow-sm ${req.type === 'leave' ? 'bg-orange-500' : req.type === 'unscheduled_alert' ? 'bg-rose-500' : 'bg-blue-500'}`}>
-                        {req.type === 'leave' ? <AirplaneTilt weight="fill" /> : req.type === 'unscheduled_alert' ? <WarningCircle weight="fill" /> : <Clock weight="fill" />}
+                      <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white flex items-center justify-center text-white text-[10px] shadow-sm ${req.type === 'leave' ? 'bg-orange-500' : req.type === 'unscheduled_alert' ? 'bg-rose-500' : req.type === 'unscheduled-work' ? 'bg-amber-500' : 'bg-blue-500'}`}>
+                        {req.type === 'leave' ? <AirplaneTilt weight="fill" /> : req.type === 'unscheduled_alert' ? <WarningCircle weight="fill" /> : req.type === 'unscheduled-work' ? <WarningOctagon weight="fill" /> : <Clock weight="fill" />}
                       </div>
                     </div>
 
@@ -182,8 +184,18 @@ export default function Requests() {
                         </div>
                       </div>
 
+                      {/* Time Details (always visible for adjustment/unscheduled-work requests) */}
+                      {(req.type === 'attendance-adjustment' || req.type === 'retro' || req.type === 'adjustment' || req.type === 'unscheduled-work') && (
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <Clock size={12} className={`${req.type === 'unscheduled-work' ? 'text-amber-400' : 'text-blue-400'} shrink-0`} />
+                          <span className={`text-[11px] font-bold ${req.type === 'unscheduled-work' ? 'text-amber-600' : 'text-blue-600'}`}>
+                            {req.timeIn || req.data?.timeIn || '--:--'} → {req.timeOut || req.data?.timeOut || '--:--'}
+                          </span>
+                        </div>
+                      )}
+
                       {/* Short Reason (if collapsed) */}
-                      {!isExpanded && <p className="text-[11px] text-slate-400 truncate mt-0.5">{req.reason || '-'}</p>}
+                      {!isExpanded && req.reason && <p className="text-[11px] text-slate-400 truncate mt-0.5">{req.reason}</p>}
                     </div>
 
                     {/* Mobile Hint (Caret) */}
@@ -201,7 +213,12 @@ export default function Requests() {
                       <div className="mb-3">
                         <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1 mb-1"><NotePencil /> รายละเอียด/เหตุผล</label>
                         <p className="text-sm text-slate-700 bg-white p-3 rounded-xl border border-slate-100 leading-relaxed">
-                          {req.type === 'adjustment' && <span className="block font-bold mb-1 text-blue-600">เวลาใหม่: {req.timeIn} - {req.timeOut}</span>}
+                          {/* ✅ FIX: Match all time adjustment types + fallback for nested data */}
+                          {(req.type === 'attendance-adjustment' || req.type === 'retro' || req.type === 'adjustment' || req.type === 'unscheduled-work') && (
+                            <span className={`block font-bold mb-2 ${req.type === 'unscheduled-work' ? 'text-amber-600' : 'text-blue-600'}`}>
+                              เวลาที่ขอ: {req.data?.date || req.targetDate || req.date || '-'} &nbsp;|&nbsp; {req.timeIn || req.data?.timeIn || '--:--'} → {req.timeOut || req.data?.timeOut || '--:--'}
+                            </span>
+                          )}
                           {req.reason || "- ไม่มีรายละเอียด -"}
                         </p>
                       </div>
