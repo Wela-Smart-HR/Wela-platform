@@ -97,7 +97,13 @@ export const usePayrollSystem = () => {
         if (field.includes('.')) {
             const [parent, key] = field.split('.');
             updatedEmp[parent] = { ...updatedEmp[parent], [key]: Number(value) };
-        } else {
+        }
+        // Handle object merge (Safe Partial Update e.g. 'financials')
+        else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            updatedEmp[field] = { ...(updatedEmp[field] || {}), ...value };
+        }
+        // Handle direct value replacement
+        else {
             updatedEmp[field] = value;
         }
 

@@ -122,6 +122,7 @@ export const PayrollRepo = {
                     department: emp.department || '-',
                     type: salaryType,
                     avatar: emp.avatar || null,
+                    deductionProfile: emp.deductionProfile || 'none',
                     baseSalary
                 },
                 financials: {

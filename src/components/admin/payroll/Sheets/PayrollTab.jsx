@@ -1,259 +1,70 @@
-import React, { useState, useEffect } from 'react';
-import {
-    ClockCounterClockwise, PlusCircle, MinusCircle,
-    Trash, Plus, CheckCircle, Lock
-} from '@phosphor-icons/react';
+import React, { useMemo } from 'react';
+import { Wallet, ArrowCounterClockwise } from '@phosphor-icons/react';
+import { usePayrollForm } from '../../../../features/payroll/hooks/usePayrollForm.jsx';
+import { IncomeSection } from './sections/IncomeSection';
+import { DeductionSection } from './sections/DeductionSection';
+import { PaymentHistory } from './sections/PaymentHistory';
 
 export const PayrollTab = ({ emp, onSave, onUpdate, onPay, onRemovePayment }) => {
-    // Local state for editing (Buffer for smooth typing)
-    const [form, setForm] = useState({
-        salary: 0, ot: 0, incentive: 0,
-        deductions: 0, sso: 0,
-        customIncomes: [], customDeducts: []
-    });
 
-    useEffect(() => {
-        if (emp?.financials) {
-            setForm({
-                salary: emp.financials.salary || 0,
-                ot: emp.financials.ot || 0,
-                incentive: emp.financials.incentive || 0,
-                deductions: emp.financials.deductions || 0,
-                sso: emp.financials.sso || 0,
-                customIncomes: emp.customItems?.filter(i => i.type === 'income') || [],
-                customDeducts: emp.customItems?.filter(i => i.type === 'deduct') || []
-            });
-        }
-    }, [emp]);
+    // 1. Use Hook for all Logic
+    const {
+        form, config, currentNet, totalStatutory,
+        handleInputChange, handleConfigChange, handleProfileChange,
+        addItem, removeItem, resetToProfile,
+        customIncomeUpdate, customDeductUpdate
+    } = usePayrollForm(emp, onUpdate);
 
-    const fmt = n => (n || 0).toLocaleString();
-
-    // Helper to add custom item
-    const addItem = (type) => {
-        const newItem = { id: Date.now(), label: '', amount: 0, type };
-        if (type === 'income') {
-            const newIncome = [...form.customIncomes, newItem];
-            setForm(prev => ({ ...prev, customIncomes: newIncome }));
-            if (onUpdate) onUpdate('customIncomes', newIncome); // Recalc
-        } else {
-            const newDeduct = [...form.customDeducts, newItem];
-            setForm(prev => ({ ...prev, customDeducts: newDeduct }));
-            if (onUpdate) onUpdate('customDeducts', newDeduct); // Recalc
-        }
-    };
-
-    // Helper to remove item
-    const removeItem = (type, idx) => {
-        if (type === 'income') {
-            const newIncome = form.customIncomes.filter((_, i) => i !== idx);
-            setForm(prev => ({ ...prev, customIncomes: newIncome }));
-            if (onUpdate) onUpdate('customIncomes', newIncome); // Recalc
-        } else {
-            const newDeduct = form.customDeducts.filter((_, i) => i !== idx);
-            setForm(prev => ({ ...prev, customDeducts: newDeduct }));
-            if (onUpdate) onUpdate('customDeducts', newDeduct); // Recalc
-        }
-    };
-
-    const handleFieldChange = (field, value) => {
-        setForm(prev => ({ ...prev, [field]: value }));
-        if (onUpdate) onUpdate(`financials.${field}`, value);
-    };
+    const fmt = n => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 
     return (
-        <div className="space-y-6 animate-fade-in text-sm pb-10">
+        <div className="space-y-6 animate-fade-in text-sm pb-24">
 
-            {/* Payment History */}
-            <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                        <ClockCounterClockwise className="text-orange-500" weight="fill" /> PAYMENT HISTORY
-                    </h3>
-                    <div className="text-[10px] font-bold text-gray-400">
-                        Paid: ฿{fmt(emp.paidAmount)}
-                    </div>
+            {/* Sticky Net Total */}
+            <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white p-4 rounded-2xl shadow-lg flex justify-between items-center relative overflow-hidden">
+                <div className="relative z-10">
+                    <p className="text-[10px] uppercase font-bold opacity-80">NET PAYABLE</p>
+                    <h2 className="text-2xl font-bold flex items-center gap-2">
+                        ฿{fmt(currentNet)}
+                    </h2>
                 </div>
-
-                <div className="space-y-3 mb-4">
-                    {emp.payments?.length > 0 ? emp.payments.map((pay, idx) => (
-                        <div key={pay.id || idx} className="bg-white p-3 rounded-xl flex justify-between items-center shadow-sm border border-gray-100">
-                            <div>
-                                <p className="text-sm font-bold text-gray-900">฿{fmt(pay.amount)}</p>
-                                <p className="text-[10px] text-gray-500">{pay.note || 'จ่ายเพิ่ม'}</p>
-                            </div>
-                            <div className="flex items-center gap-3">
-                                <span className="text-[10px] font-medium text-gray-400">
-                                    {new Date(pay.date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}
-                                </span>
-                                <button onClick={() => onRemovePayment(idx)} className="text-gray-300 hover:text-red-500 transition">
-                                    <Trash weight="bold" />
-                                </button>
-                            </div>
-                        </div>
-                    )) : (
-                        <p className="text-center text-xs text-gray-400 py-2 italic">ยังไม่มีประวัติการจ่ายเงิน</p>
-                    )}
-                </div>
-
-                {(emp.financials?.net - emp.paidAmount) > 0 ? (
-                    <button
-                        onClick={onPay}
-                        className="w-full py-3 bg-black text-white rounded-xl font-bold text-sm shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-transform"
-                    >
-                        <Plus weight="bold" /> เพิ่มรายการจ่าย
+                <div className="flex items-center gap-2 relative z-10">
+                    <button onClick={resetToProfile} className="text-white/50 hover:text-white transition" title="Restore Default Settings">
+                        <ArrowCounterClockwise weight="bold" className="text-xl" />
                     </button>
-                ) : (
-                    <div className="text-center py-2">
-                        <span className="text-green-500 text-xs font-bold flex items-center justify-center gap-1">
-                            <CheckCircle weight="fill" /> จ่ายครบแล้ว
-                        </span>
-                    </div>
-                )}
+                </div>
+                <Wallet className="text-4xl opacity-20 absolute right-4 bottom-[-10px] rotate-12" weight="fill" />
             </div>
 
             {/* Income Section */}
-            <div>
-                <h3 className="text-xs font-bold text-gray-400 ml-1 mb-2 flex items-center gap-1">
-                    <PlusCircle className="text-green-500" weight="fill" /> รายได้ (INCOME)
-                </h3>
-                <div className="bg-white border border-gray-100 rounded-xl p-1 shadow-sm">
-                    <div className="flex justify-between items-center p-3 border-b border-gray-50">
-                        <label className="text-sm font-medium text-gray-600">เงินเดือน</label>
-                        <input
-                            type="number"
-                            value={form.salary}
-                            onChange={e => handleFieldChange('salary', Number(e.target.value))}
-                            className="text-right font-bold text-gray-900 w-32 outline-none bg-transparent"
-                            onBlur={() => onSave && onSave(form)}
-                        />
-                    </div>
-                    <div className="flex justify-between items-center p-3 border-b border-gray-50">
-                        <label className="text-sm font-medium text-gray-600">OT</label>
-                        <input
-                            type="number"
-                            value={form.ot}
-                            onChange={e => handleFieldChange('ot', Number(e.target.value))}
-                            className="text-right font-bold text-gray-900 w-32 outline-none bg-transparent"
-                            onBlur={() => onSave && onSave(form)}
-                        />
-                    </div>
-                    <div className="flex justify-between items-center p-3 border-b border-gray-50">
-                        <label className="text-sm font-medium text-gray-600">Incentive</label>
-                        <input
-                            type="number"
-                            value={form.incentive}
-                            onChange={e => handleFieldChange('incentive', Number(e.target.value))}
-                            className="text-right font-bold text-gray-900 w-32 outline-none bg-transparent"
-                            onBlur={() => onSave && onSave(form)}
-                        />
-                    </div>
-                    {form.customIncomes.map((item, idx) => (
-                        <div key={item.id} className="flex items-center p-3 border-b border-gray-50 gap-2">
-                            <input
-                                type="text"
-                                value={item.label}
-                                onChange={e => {
-                                    const newItems = [...form.customIncomes];
-                                    newItems[idx].label = e.target.value;
-                                    setForm({ ...form, customIncomes: newItems });
-                                    if (onUpdate) onUpdate('customIncomes', newItems);
-                                }}
-                                placeholder="ชื่อรายการ"
-                                className="flex-1 text-sm text-gray-600 outline-none bg-transparent border-b border-dashed focus:border-blue-500"
-                                onBlur={() => onSave && onSave(form)}
-                            />
-                            <input
-                                type="number"
-                                value={item.amount}
-                                onChange={e => {
-                                    const newItems = [...form.customIncomes];
-                                    newItems[idx].amount = Number(e.target.value);
-                                    setForm({ ...form, customIncomes: newItems });
-                                    if (onUpdate) onUpdate('customIncomes', newItems);
-                                }}
-                                className="text-right font-bold text-gray-900 w-24 outline-none bg-transparent"
-                                onBlur={() => onSave && onSave(form)}
-                            />
-                            <button onClick={() => { removeItem('income', idx); onSave && onSave(form); }} className="text-gray-300 hover:text-red-500">
-                                <MinusCircle weight="bold" />
-                            </button>
-                        </div>
-                    ))}
-                    <button
-                        onClick={() => addItem('income')}
-                        className="w-full py-2 text-[10px] font-bold text-blue-600 flex items-center justify-center gap-1 hover:bg-blue-50 rounded-b-xl transition-colors"
-                    >
-                        <Plus weight="bold" /> เพิ่มรายการ
-                    </button>
-                </div>
-            </div>
+            <IncomeSection
+                form={form}
+                handleInputChange={handleInputChange}
+                addItem={addItem}
+                removeItem={removeItem}
+                customIncomeUpdate={customIncomeUpdate}
+            />
 
             {/* Deduction Section */}
-            <div>
-                <h3 className="text-xs font-bold text-gray-400 ml-1 mb-2 flex items-center gap-1">
-                    <MinusCircle className="text-red-500" weight="fill" /> รายหัก (DEDUCTIONS)
-                </h3>
-                <div className="bg-white border border-gray-100 rounded-xl p-1 shadow-sm">
-                    <div className="flex justify-between items-center p-3 border-b border-gray-50">
-                        <label className="text-sm font-medium text-gray-600">สาย/ขาด</label>
-                        <input
-                            type="number"
-                            value={form.deductions}
-                            onChange={e => handleFieldChange('deductions', Number(e.target.value))}
-                            className="text-right font-bold text-red-500 w-32 outline-none bg-transparent"
-                            onBlur={() => onSave && onSave(form)}
-                        />
-                    </div>
-                    <div className="flex justify-between items-center p-3 border-b border-gray-50">
-                        <label className="text-sm font-medium text-gray-600">ประกันสังคม</label>
-                        <input
-                            type="number"
-                            value={form.sso}
-                            onChange={e => handleFieldChange('sso', Number(e.target.value))}
-                            className="text-right font-bold text-red-500 w-32 outline-none bg-transparent"
-                            onBlur={() => onSave && onSave(form)}
-                        />
-                    </div>
-                    {form.customDeducts.map((item, idx) => (
-                        <div key={item.id} className="flex items-center p-3 border-b border-gray-50 gap-2">
-                            <input
-                                type="text"
-                                value={item.label}
-                                onChange={e => {
-                                    const newItems = [...form.customDeducts];
-                                    newItems[idx].label = e.target.value;
-                                    setForm({ ...form, customDeducts: newItems });
-                                    if (onUpdate) onUpdate('customDeducts', newItems);
-                                }}
-                                placeholder="ชื่อรายการ"
-                                className="flex-1 text-sm text-gray-600 outline-none bg-transparent border-b border-dashed focus:border-red-500"
-                                onBlur={() => onSave && onSave(form)}
-                            />
-                            <input
-                                type="number"
-                                value={item.amount}
-                                onChange={e => {
-                                    const newItems = [...form.customDeducts];
-                                    newItems[idx].amount = Number(e.target.value);
-                                    setForm({ ...form, customDeducts: newItems });
-                                    if (onUpdate) onUpdate('customDeducts', newItems);
-                                }}
-                                className="text-right font-bold text-red-500 w-24 outline-none bg-transparent"
-                                onBlur={() => onSave && onSave(form)}
-                            />
-                            <button onClick={() => { removeItem('deduct', idx); onSave && onSave(form); }} className="text-gray-300 hover:text-red-500">
-                                <MinusCircle weight="bold" />
-                            </button>
-                        </div>
-                    ))}
-                    <button
-                        onClick={() => addItem('deduct')}
-                        className="w-full py-2 text-[10px] font-bold text-red-500 flex items-center justify-center gap-1 hover:bg-red-50 rounded-b-xl transition-colors"
-                    >
-                        <Plus weight="bold" /> เพิ่มรายการ
-                    </button>
-                </div>
-            </div>
+            <DeductionSection
+                form={form}
+                config={config}
+                totalStatutory={totalStatutory}
+                handleInputChange={handleInputChange}
+                handleConfigChange={handleConfigChange}
+                handleProfileChange={handleProfileChange}
+                addItem={addItem}
+                removeItem={removeItem}
+                customDeductUpdate={customDeductUpdate}
+            />
+
+            {/* Payment History */}
+            <PaymentHistory
+                emp={emp}
+                currentNet={currentNet}
+                onPay={onPay}
+                onRemovePayment={onRemovePayment}
+            />
 
         </div>
     );
