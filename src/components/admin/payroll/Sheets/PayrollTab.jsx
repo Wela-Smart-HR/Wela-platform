@@ -4,8 +4,8 @@ import {
     Trash, Plus, CheckCircle, Lock
 } from '@phosphor-icons/react';
 
-export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
-    // Local state for editing
+export const PayrollTab = ({ emp, onSave, onUpdate, onPay, onRemovePayment }) => {
+    // Local state for editing (Buffer for smooth typing)
     const [form, setForm] = useState({
         salary: 0, ot: 0, incentive: 0,
         deductions: 0, sso: 0,
@@ -30,26 +30,35 @@ export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
 
     // Helper to add custom item
     const addItem = (type) => {
-        const newItem = { id: Date.now(), label: '', amount: '', type };
+        const newItem = { id: Date.now(), label: '', amount: 0, type };
         if (type === 'income') {
-            setForm(prev => ({ ...prev, customIncomes: [...prev.customIncomes, newItem] }));
+            const newIncome = [...form.customIncomes, newItem];
+            setForm(prev => ({ ...prev, customIncomes: newIncome }));
+            if (onUpdate) onUpdate('customIncomes', newIncome); // Recalc
         } else {
-            setForm(prev => ({ ...prev, customDeducts: [...prev.customDeducts, newItem] }));
+            const newDeduct = [...form.customDeducts, newItem];
+            setForm(prev => ({ ...prev, customDeducts: newDeduct }));
+            if (onUpdate) onUpdate('customDeducts', newDeduct); // Recalc
         }
     };
 
     // Helper to remove item
     const removeItem = (type, idx) => {
         if (type === 'income') {
-            setForm(prev => ({ ...prev, customIncomes: prev.customIncomes.filter((_, i) => i !== idx) }));
+            const newIncome = form.customIncomes.filter((_, i) => i !== idx);
+            setForm(prev => ({ ...prev, customIncomes: newIncome }));
+            if (onUpdate) onUpdate('customIncomes', newIncome); // Recalc
         } else {
-            setForm(prev => ({ ...prev, customDeducts: prev.customDeducts.filter((_, i) => i !== idx) }));
+            const newDeduct = form.customDeducts.filter((_, i) => i !== idx);
+            setForm(prev => ({ ...prev, customDeducts: newDeduct }));
+            if (onUpdate) onUpdate('customDeducts', newDeduct); // Recalc
         }
     };
 
-    // Auto-save wrapper (debounced in parent or explicit save button)
-    // For now, we'll use a manual save button logic or assumption that parent handles it via effects if needed.
-    // But user UX asked for "Save" or just direct interaction. Let's assume we pass data back on change or have a save button.
+    const handleFieldChange = (field, value) => {
+        setForm(prev => ({ ...prev, [field]: value }));
+        if (onUpdate) onUpdate(`financials.${field}`, value);
+    };
 
     return (
         <div className="space-y-6 animate-fade-in text-sm pb-10">
@@ -113,9 +122,9 @@ export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
                         <input
                             type="number"
                             value={form.salary}
-                            onChange={e => setForm({ ...form, salary: Number(e.target.value) })}
+                            onChange={e => handleFieldChange('salary', Number(e.target.value))}
                             className="text-right font-bold text-gray-900 w-32 outline-none bg-transparent"
-                            onBlur={() => onSave(form)}
+                            onBlur={() => onSave && onSave(form)}
                         />
                     </div>
                     <div className="flex justify-between items-center p-3 border-b border-gray-50">
@@ -123,9 +132,9 @@ export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
                         <input
                             type="number"
                             value={form.ot}
-                            onChange={e => setForm({ ...form, ot: Number(e.target.value) })}
+                            onChange={e => handleFieldChange('ot', Number(e.target.value))}
                             className="text-right font-bold text-gray-900 w-32 outline-none bg-transparent"
-                            onBlur={() => onSave(form)}
+                            onBlur={() => onSave && onSave(form)}
                         />
                     </div>
                     <div className="flex justify-between items-center p-3 border-b border-gray-50">
@@ -133,9 +142,9 @@ export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
                         <input
                             type="number"
                             value={form.incentive}
-                            onChange={e => setForm({ ...form, incentive: Number(e.target.value) })}
+                            onChange={e => handleFieldChange('incentive', Number(e.target.value))}
                             className="text-right font-bold text-gray-900 w-32 outline-none bg-transparent"
-                            onBlur={() => onSave(form)}
+                            onBlur={() => onSave && onSave(form)}
                         />
                     </div>
                     {form.customIncomes.map((item, idx) => (
@@ -147,10 +156,11 @@ export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
                                     const newItems = [...form.customIncomes];
                                     newItems[idx].label = e.target.value;
                                     setForm({ ...form, customIncomes: newItems });
+                                    if (onUpdate) onUpdate('customIncomes', newItems);
                                 }}
                                 placeholder="ชื่อรายการ"
                                 className="flex-1 text-sm text-gray-600 outline-none bg-transparent border-b border-dashed focus:border-blue-500"
-                                onBlur={() => onSave(form)}
+                                onBlur={() => onSave && onSave(form)}
                             />
                             <input
                                 type="number"
@@ -159,11 +169,12 @@ export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
                                     const newItems = [...form.customIncomes];
                                     newItems[idx].amount = Number(e.target.value);
                                     setForm({ ...form, customIncomes: newItems });
+                                    if (onUpdate) onUpdate('customIncomes', newItems);
                                 }}
                                 className="text-right font-bold text-gray-900 w-24 outline-none bg-transparent"
-                                onBlur={() => onSave(form)}
+                                onBlur={() => onSave && onSave(form)}
                             />
-                            <button onClick={() => { removeItem('income', idx); onSave(form); }} className="text-gray-300 hover:text-red-500">
+                            <button onClick={() => { removeItem('income', idx); onSave && onSave(form); }} className="text-gray-300 hover:text-red-500">
                                 <MinusCircle weight="bold" />
                             </button>
                         </div>
@@ -188,9 +199,9 @@ export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
                         <input
                             type="number"
                             value={form.deductions}
-                            onChange={e => setForm({ ...form, deductions: Number(e.target.value) })}
+                            onChange={e => handleFieldChange('deductions', Number(e.target.value))}
                             className="text-right font-bold text-red-500 w-32 outline-none bg-transparent"
-                            onBlur={() => onSave(form)}
+                            onBlur={() => onSave && onSave(form)}
                         />
                     </div>
                     <div className="flex justify-between items-center p-3 border-b border-gray-50">
@@ -198,9 +209,9 @@ export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
                         <input
                             type="number"
                             value={form.sso}
-                            onChange={e => setForm({ ...form, sso: Number(e.target.value) })}
+                            onChange={e => handleFieldChange('sso', Number(e.target.value))}
                             className="text-right font-bold text-red-500 w-32 outline-none bg-transparent"
-                            onBlur={() => onSave(form)}
+                            onBlur={() => onSave && onSave(form)}
                         />
                     </div>
                     {form.customDeducts.map((item, idx) => (
@@ -212,10 +223,11 @@ export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
                                     const newItems = [...form.customDeducts];
                                     newItems[idx].label = e.target.value;
                                     setForm({ ...form, customDeducts: newItems });
+                                    if (onUpdate) onUpdate('customDeducts', newItems);
                                 }}
                                 placeholder="ชื่อรายการ"
                                 className="flex-1 text-sm text-gray-600 outline-none bg-transparent border-b border-dashed focus:border-red-500"
-                                onBlur={() => onSave(form)}
+                                onBlur={() => onSave && onSave(form)}
                             />
                             <input
                                 type="number"
@@ -224,11 +236,12 @@ export const PayrollTab = ({ emp, onSave, onPay, onRemovePayment }) => {
                                     const newItems = [...form.customDeducts];
                                     newItems[idx].amount = Number(e.target.value);
                                     setForm({ ...form, customDeducts: newItems });
+                                    if (onUpdate) onUpdate('customDeducts', newItems);
                                 }}
                                 className="text-right font-bold text-red-500 w-24 outline-none bg-transparent"
-                                onBlur={() => onSave(form)}
+                                onBlur={() => onSave && onSave(form)}
                             />
-                            <button onClick={() => { removeItem('deduct', idx); onSave(form); }} className="text-gray-300 hover:text-red-500">
+                            <button onClick={() => { removeItem('deduct', idx); onSave && onSave(form); }} className="text-gray-300 hover:text-red-500">
                                 <MinusCircle weight="bold" />
                             </button>
                         </div>

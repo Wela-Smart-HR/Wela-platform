@@ -9,19 +9,30 @@ import { EmployeeDetailSheet } from '../../components/admin/payroll/Sheets/Emplo
 
 // Main Page Entry Point
 export default function Payroll() {
-    const { state, actions } = usePayrollSystem();
+    const {
+        view, cycles, activeCycle, employees, isLoading, stats,
+        isNewCycleOpen, setIsNewCycleOpen,
+        isPaymentOpen, setIsPaymentOpen,
+        activeEmp, setActiveEmp,
+
+        // Actions
+        loadCycles, handleCreateCycle, handleSelectCycle, handleDeleteCycle,
+        handleOpenEmp, handleUpdateEmp, handleSaveEmpSheet,
+        handleConfirmPayment, handleRemovePayment,
+        goBack
+    } = usePayrollSystem();
 
     return (
         <PayrollLayout>
 
             {/* View Switcher */}
-            {state.view === 'cycles' && (
+            {view === 'cycles' && (
                 <div className="relative">
                     <button
                         onClick={() => {
                             if (confirm("Cleanup duplicates?")) {
                                 import('../../features/people/services/cleanup.service').then(({ UserCleanupService }) => {
-                                    UserCleanupService.cleanupDuplicates(state.cycles[0]?.companyId || 'comp_1704954200820').then(res => alert(`Fixed ${res.count} items`));
+                                    UserCleanupService.cleanupDuplicates(cycles[0]?.companyId || 'comp_1704954200820').then(res => alert(`Fixed ${res.count} items`));
                                 });
                             }
                         }}
@@ -31,48 +42,50 @@ export default function Payroll() {
                         Fix DB
                     </button>
                     <CycleList
-                        cycles={state.cycles}
-                        totals={state.totals}
-                        onCreateCycle={() => actions.setIsNewCycleOpen(true)}
-                        onSelectCycle={actions.handleSelectCycle}
-                        isLoading={state.isLoading}
+                        cycles={cycles}
+                        totals={stats} // stats: { totalNet, totalPaid, count }
+                        onCreateCycle={() => setIsNewCycleOpen(true)}
+                        onSelectCycle={handleSelectCycle}
+                        isLoading={isLoading}
                     />
                 </div>
             )}
 
-            {state.view === 'list' && (
+            {view === 'list' && (
                 <EmployeeList
-                    activeCycle={state.activeCycle}
-                    employees={state.employees}
-                    totals={state.totals}
-                    onBack={() => actions.setView('cycles')}
-                    onSelectEmployee={actions.setActiveEmp}
-                    onDeleteCycle={actions.handleDeleteCycle}
-                    isLoading={state.isLoading}
+                    activeCycle={activeCycle}
+                    employees={employees}
+                    totals={stats}
+                    onBack={goBack}
+                    onSelectEmployee={handleOpenEmp}
+                    onDeleteCycle={handleDeleteCycle}
+                    isLoading={isLoading}
                 />
             )}
 
             {/* Modals & Sheets */}
             <NewCycleModal
-                isOpen={state.isNewCycleOpen}
-                onClose={() => actions.setIsNewCycleOpen(false)}
-                onCreate={actions.handleCreateCycle}
+                isOpen={isNewCycleOpen}
+                onClose={() => setIsNewCycleOpen(false)}
+                onCreate={handleCreateCycle}
             />
 
             <EmployeeDetailSheet
-                emp={state.activeEmp}
-                isOpen={!!state.activeEmp}
-                onClose={() => actions.setActiveEmp(null)}
-                onSave={actions.handleSaveEmp}
-                onPay={() => actions.setIsPaymentOpen(true)}
-                onRemovePayment={actions.handleRemovePayment}
+                emp={activeEmp}
+                isOpen={!!activeEmp}
+                onClose={() => setActiveEmp(null)}
+                // Use handleUpdateEmp for field changes (Real-time Calc)
+                onUpdate={handleUpdateEmp}
+                onSave={handleSaveEmpSheet}
+                onPay={() => setIsPaymentOpen(true)}
+                onRemovePayment={handleRemovePayment}
             />
 
             <PaymentModal
-                isOpen={state.isPaymentOpen}
-                remaining={(state.activeEmp?.financials?.net || 0) - (state.activeEmp?.paidAmount || 0)}
-                onClose={() => actions.setIsPaymentOpen(false)}
-                onConfirm={actions.handleConfirmPayment}
+                isOpen={isPaymentOpen}
+                remaining={(activeEmp?.financials?.net || 0) - (activeEmp?.paidAmount || 0)}
+                onClose={() => setIsPaymentOpen(false)}
+                onConfirm={handleConfirmPayment}
             />
 
         </PayrollLayout>

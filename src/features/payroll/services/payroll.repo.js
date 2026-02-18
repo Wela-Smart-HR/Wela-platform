@@ -210,6 +210,13 @@ export const PayrollRepo = {
     },
 
     /**
+     * Update Payslip (Alias for savePayslip for clearer semantics in UI)
+     */
+    async updatePayslip(payslipId, data) {
+        return this.savePayslip(data);
+    },
+
+    /**
      * Save Payslip (Snapshot)
      * @param {Object} payslip 
      */

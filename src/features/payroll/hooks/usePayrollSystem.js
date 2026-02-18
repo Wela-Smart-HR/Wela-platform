@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { PayrollRepo } from '../services/payroll.repo';
 import { PayrollCalculator } from '../services/payroll.calculator';
@@ -7,45 +7,43 @@ export const usePayrollSystem = () => {
     const { currentUser } = useAuth();
     const companyId = currentUser?.companyId;
 
-    // View State
-    const [view, setView] = useState('cycles'); // 'cycles', 'list'
-    const [activeCycle, setActiveCycle] = useState(null);
-    const [employees, setEmployees] = useState([]); // List for active cycle
+    // --- State ---
+    const [view, setView] = useState('cycles'); // 'cycles' | 'list'
     const [cycles, setCycles] = useState([]);
+    const [activeCycle, setActiveCycle] = useState(null);
+    const [employees, setEmployees] = useState([]); // Employee list (Payslips) for active cycle
     const [isLoading, setIsLoading] = useState(false);
 
-    // UI State
+    // --- UI Triggers ---
     const [isNewCycleOpen, setIsNewCycleOpen] = useState(false);
-    const [activeEmp, setActiveEmp] = useState(null); // Selected for sheet
     const [isPaymentOpen, setIsPaymentOpen] = useState(false);
+    const [activeEmp, setActiveEmp] = useState(null); // Payslip ที่กำลังเปิด Sheet ("The Brain" integration point)
 
-    // Data Fetching
-    useEffect(() => {
-        if (!companyId) return;
-        loadCycles();
-    }, [companyId]);
-
+    // --- 1. Load Cycles (Dashboard) ---
     const loadCycles = async () => {
+        if (!companyId) return;
         setIsLoading(true);
         try {
             const data = await PayrollRepo.getCycles(companyId);
             setCycles(data);
         } catch (error) {
-            console.error("Load Cycles Error:", error);
+            console.error("Load Cycles Failed:", error);
         } finally {
             setIsLoading(false);
         }
     };
 
-    // Actions
+    // Auto-load on mount
+    useEffect(() => { loadCycles(); }, [companyId]);
+
+    // --- 2. Cycle Actions ---
     const handleCreateCycle = async (formData) => {
         try {
             await PayrollRepo.createCycle(companyId, formData);
-            await loadCycles(); // Refresh list
-            // Optionally auto-select the new cycle (logic to find new ID needed)
+            await loadCycles(); // Refresh List
+            setIsNewCycleOpen(false);
         } catch (error) {
-            console.error("Create Cycle Error:", error);
-            alert("Create failed: " + error.message);
+            alert("สร้างรอบบัญชีไม่สำเร็จ: " + error.message);
         }
     };
 
@@ -57,8 +55,7 @@ export const usePayrollSystem = () => {
             setEmployees(data);
             setView('list');
         } catch (error) {
-            console.error("Load Payslips Error:", error);
-            alert("Failed to load payslips");
+            console.error("Load Payslips Failed:", error);
         } finally {
             setIsLoading(false);
         }
@@ -81,111 +78,135 @@ export const usePayrollSystem = () => {
         }
     };
 
-    const handleSaveEmp = async (updatedForm) => {
-        if (!activeEmp) return;
+    // --- 3. Employee/Payslip Actions (The Brain Integration) ---
 
-        // 1. Recalculate Net
-        const newNet = PayrollCalculator.calculateNet(updatedForm);
-
-        // 2. Merge changes
-        const updatedEmp = {
-            ...activeEmp,
-            financials: { ...activeEmp.financials, ...updatedForm, net: newNet },
-            customItems: [...updatedForm.customIncomes.map(i => ({ ...i, type: 'income' })), ...updatedForm.customDeducts.map(d => ({ ...d, type: 'deduct' }))]
-        };
-
-        // 3. Update Local State (Optimistic)
-        setEmployees(prev => prev.map(e => e.id === updatedEmp.id ? updatedEmp : e));
-        setActiveEmp(updatedEmp);
-
-        // 4. Save to DB
-        // await PayrollRepo.savePayslip(updatedEmp); -- TODO: Connect
+    // เปิด Sheet พนักงาน
+    const handleOpenEmp = (emp) => {
+        // Deep copy เพื่อป้องกันการแก้ state โดยตรง
+        setActiveEmp(JSON.parse(JSON.stringify(emp)));
     };
 
+    // บันทึกการแก้ไข (Recalculate logic อยู่ที่นี่)
+    const handleUpdateEmp = async (field, value) => {
+        if (!activeEmp) return;
+
+        // 1. Update Local Active Emp State
+        const updatedEmp = { ...activeEmp };
+
+        // Helper ในการเข้าถึง nested object (เช่น 'financials.salary')
+        if (field.includes('.')) {
+            const [parent, key] = field.split('.');
+            updatedEmp[parent] = { ...updatedEmp[parent], [key]: Number(value) };
+        } else {
+            updatedEmp[field] = value;
+        }
+
+        // 2. 🧠 Recalculate Net using The Brain
+        // ดึงค่าทั้งหมดมารวมกันเพื่อคำนวณใหม่
+        const calcItems = {
+            salary: updatedEmp.financials.salary,
+            ot: updatedEmp.financials.ot,
+            incentive: updatedEmp.financials.incentive,
+            deductions: updatedEmp.financials.deductions, // late/absent
+            sso: updatedEmp.financials.sso,
+            tax: updatedEmp.financials.tax,
+            customIncomes: updatedEmp.customIncomes || [],
+            customDeducts: updatedEmp.customDeducts || []
+        };
+
+        const newNet = PayrollCalculator.calculateNet(calcItems);
+        updatedEmp.financials.net = newNet;
+        // Sync multiple net totals if they exist in schema, but mainly 'net' inside financials
+        // updatedEmp.financials.netTotal = newNet; // Sync naming if needed
+
+        // 3. Update Active Emp (Immediate UI Feedback)
+        setActiveEmp(updatedEmp);
+
+        // 4. Update List (Background - Optimistic UI)
+        setEmployees(prev => prev.map(e => e.id === updatedEmp.id ? updatedEmp : e));
+    };
+
+    // กด Save จริงๆ (บันทึกลง DB)
+    const handleSaveEmpSheet = async () => {
+        if (!activeEmp) return;
+        try {
+            // Using alias 'updatePayslip' for clarity, but mapped to savePayslip
+            if (PayrollRepo.updatePayslip) {
+                await PayrollRepo.updatePayslip(activeEmp.id, activeEmp);
+            } else {
+                await PayrollRepo.savePayslip(activeEmp);
+            }
+            // alert("บันทึกเรียบร้อย"); // Optional
+        } catch (error) {
+            alert("Save Failed: " + error.message);
+        }
+    };
+
+    // --- 4. Payment Actions (The Guard Integration) ---
     const handleConfirmPayment = async (amount) => {
         if (!activeEmp) return;
-
-        const payment = {
-            amount,
-            date: new Date().toISOString(),
-            method: 'transfer',
-            note: 'จ่ายเพิ่ม'
-        };
-
         try {
-            // await PayrollRepo.addPayment(activeEmp.id, payment); -- TODO: Connect
+            // เรียก Repo Transaction
+            await PayrollRepo.addPayment(activeEmp.id, {
+                amount: Number(amount),
+                date: new Date().toISOString(),
+                method: 'transfer', // Default
+                note: 'Manual Payment'
+            });
 
-            // Local Update
-            const newPaid = (activeEmp.paidAmount || 0) + amount;
-            const newStatus = newPaid >= activeEmp.financials.net ? 'paid' : 'partial';
-            const updatedEmp = {
-                ...activeEmp,
-                paidAmount: newPaid,
-                paymentStatus: newStatus,
-                payments: [...(activeEmp.payments || []), payment]
-            };
+            // Refresh ข้อมูลพนักงานคนนั้นใหม่ (เพื่อให้ได้สถานะล่าสุดจาก DB)
+            // หรือจะคำนวณ Local State ก็ได้ แต่การ Fetch ใหม่ชัวร์กว่าเรื่อง Status
+            if (activeCycle) {
+                const freshPayslips = await PayrollRepo.getPayslips(activeCycle.id);
+                setEmployees(freshPayslips);
 
-            setEmployees(prev => prev.map(e => e.id === updatedEmp.id ? updatedEmp : e));
-            setActiveEmp(updatedEmp);
+                // Update Active Emp ถ้ายังเปิดอยู่
+                const freshEmp = freshPayslips.find(e => e.id === activeEmp.id);
+                if (freshEmp) setActiveEmp(freshEmp);
+            }
 
+            setIsPaymentOpen(false);
         } catch (error) {
-            alert(error.message);
+            alert(error.message); // แสดง Error จาก Transaction (เช่น จ่ายเกิน)
         }
     };
 
-    const handleRemovePayment = async (idx) => {
-        // Logic to remove...
-        // For now just alert
-        if (!confirm("ลบการจ่ายเงินนี้?")) return;
-
-        const newPayments = [...activeEmp.payments];
-        const removed = newPayments.splice(idx, 1)[0];
-        const newPaid = (activeEmp.paidAmount || 0) - removed.amount;
-
-        const updatedEmp = { ...activeEmp, payments: newPayments, paidAmount: newPaid };
-        setEmployees(prev => prev.map(e => e.id === updatedEmp.id ? updatedEmp : e));
-        setActiveEmp(updatedEmp);
-    };
-
-    // Data Fetching
-    useEffect(() => {
-        if (!companyId) return;
-        loadCycles();
-        loadStaffCount();
-    }, [companyId]);
-
-    const loadStaffCount = async () => {
-        try {
-            const snap = await PayrollRepo.getStaffCount(companyId);
-            setStaffCount(snap);
-        } catch (e) {
-            console.error(e);
-        }
-    };
-
-    // ... inside usePayrollSystem
-    const [staffCount, setStaffCount] = useState(0);
-
-    // ... inside computed totals
-    const totals = {
-        ytdTotal: cycles.reduce((acc, c) => acc + (c.summary?.totalPaid || 0), 0),
-        staffCount: staffCount, // Use real count
-        // ...
-    };
+    // --- 5. Computed Stats (Dashboard) ---
+    const stats = useMemo(() => {
+        const totalNet = employees.reduce((sum, e) => sum + (e.financials?.net || 0), 0);
+        const totalPaid = employees.reduce((sum, e) => sum + (e.paidAmount || 0), 0);
+        return {
+            totalNet,
+            totalPaid,
+            totalRemaining: totalNet - totalPaid,
+            count: employees.length
+        };
+    }, [employees]);
 
     return {
-        state: { view, activeCycle, employees, cycles, totals, isNewCycleOpen, activeEmp, isPaymentOpen, isLoading },
-        actions: {
-            setView,
-            setIsNewCycleOpen,
-            handleCreateCycle,
-            handleSelectCycle,
-            handleDeleteCycle,
-            setActiveEmp,
-            setIsPaymentOpen,
-            handleSaveEmp,
-            handleConfirmPayment,
-            handleRemovePayment
-        }
+        // State
+        view,
+        cycles,
+        activeCycle,
+        employees,
+        isLoading,
+        stats,
+        // Modals State
+        isNewCycleOpen, setIsNewCycleOpen,
+        isPaymentOpen, setIsPaymentOpen,
+        activeEmp,
+
+        // Actions
+        loadCycles,
+        handleCreateCycle,
+        handleSelectCycle,
+        handleDeleteCycle,
+        handleOpenEmp,
+        handleUpdateEmp,
+        handleSaveEmpSheet,
+        handleConfirmPayment,
+
+        // Navigation
+        goBack: () => setView('cycles')
     };
 };

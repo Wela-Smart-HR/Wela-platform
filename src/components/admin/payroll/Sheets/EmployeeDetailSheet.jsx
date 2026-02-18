@@ -8,6 +8,7 @@ export const EmployeeDetailSheet = ({
     isOpen,
     onClose,
     onSave, // Function to save edits
+    onUpdate, // Function for real-time updates
     onPay,  // Function to open payment modal
     onRemovePayment
 }) => {
@@ -71,6 +72,7 @@ export const EmployeeDetailSheet = ({
                             <PayrollTab
                                 emp={emp}
                                 onSave={onSave}
+                                onUpdate={onUpdate}
                                 onPay={onPay}
                                 onRemovePayment={onRemovePayment}
                             />
