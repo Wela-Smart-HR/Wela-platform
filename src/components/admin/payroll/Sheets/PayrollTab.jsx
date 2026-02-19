@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Wallet, ArrowCounterClockwise } from '@phosphor-icons/react';
+import { Wallet, ArrowCounterClockwise, FloppyDisk } from '@phosphor-icons/react';
 import { usePayrollForm } from '../../../../features/payroll/hooks/usePayrollForm.jsx';
 import { IncomeSection } from './sections/IncomeSection';
 import { DeductionSection } from './sections/DeductionSection';
@@ -65,6 +65,17 @@ export const PayrollTab = ({ emp, onSave, onUpdate, onPay, onRemovePayment }) =>
                 onPay={onPay}
                 onRemovePayment={onRemovePayment}
             />
+
+            {/* Sticky Save Button */}
+            <div className="fixed bottom-6 left-0 right-0 z-50 flex justify-center px-6 pointer-events-none">
+                <button
+                    onClick={onSave}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-2xl shadow-lg shadow-blue-600/30 transition-all active:scale-95 flex items-center gap-2 pointer-events-auto"
+                >
+                    <FloppyDisk size={18} weight="bold" />
+                    บันทึกการแก้ไข
+                </button>
+            </div>
 
         </div>
     );

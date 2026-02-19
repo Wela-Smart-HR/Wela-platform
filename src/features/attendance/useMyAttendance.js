@@ -1,72 +1,63 @@
 /**
  * ===================================================
- * ⏰ useMyAttendance - Hook หลักสำหรับลงเวลา (Employee)
+ * ⏰ useMyAttendance (Facade)
  * ===================================================
  * 
- * 📋 สารบัญ (Table of Contents)
- * ===================================================
+ * 👑 The Orchestrator
+ * รวบรวม Logic จาก Hooks ย่อยๆ ให้ UI เรียกใช้ง่ายๆ
+ * ตามหลักการ Separation of Concerns (SoC)
  * 
- * 📦 STATE (Lines ~40-70)
- * ├── todayRecord         - ข้อมูลลงเวลาวันนี้
- * ├── attendanceLogs      - ประวัติรายเดือน (real-time)
- * ├── schedules           - ตารางเวลารายเดือน (real-time)  
- * ├── todaySchedule       - ตารางเวลาวันนี้
- * ├── location            - ตำแหน่ง GPS { lat, lng }
- * ├── locationStatus      - สถานะ GPS: 'loading'|'ok'|'error'|'out-of-range'
- * ├── distance            - ระยะห่างจากบริษัท (เมตร)
- * ├── companyConfig       - ค่า config บริษัท
- * ├── loading/error       - สถานะโหลด
- * └── isOffline           - ออนไลน์/ออฟไลน์
- * 
- * 🚀 FUNCTIONS (ค้นหาได้จากชื่อ)
- * ├── initialize()            (Line ~84)  - เริ่มต้นระบบ (โหลด config, GPS)
- * ├── fetchLogsAndSchedules() (Line ~142) - ดึงประวัติ real-time
- * ├── startGpsTracking()      (Line ~207) - เริ่มติดตาม GPS
- * ├── retryGps()              (Line ~295) - ลอง GPS ใหม่
- * ├── loadTodayRecord()       (Line ~312) - โหลดข้อมูลวันนี้
- * ├── clockIn()               (Line ~326) - ✅ ลงเวลาเข้า
- * ├── clockOut()              (Line ~407) - ✅ ลงเวลาออก
- * ├── syncOfflineData()       (Line ~468) - ✅ Sync ข้อมูล offline
- * ├── getHistory()            (Line ~499) - ดึงประวัติช่วงเวลา
- * └── submitRetroRequest()    (Line ~520) - ✅ ส่งขอแก้เวลาย้อนหลัง
- * 
- * 💡 แก้แต่ละฟังก์ชันแยกกันได้ ไม่กระทบส่วนอื่น!
- * 
- * 📁 ใช้งานร่วมกับ:
- * ├── gps.service.js       → ติดตามตำแหน่ง
- * ├── offline.service.js   → จัดการข้อมูลเมื่อไม่มีเน็ต
- * ├── attendance.config.js → ดึง config บริษัท
- * └── attendance.repo.js   → บันทึกลง Firebase
+ * 🧩 Composition:
+ * 1. 📍 useLocationTracking   - จัดการ GPS
+ * 2. 📊 useAttendanceLogs     - จัดการ Real-time Data
+ * 3. 📡 useOfflineSync        - จัดการ Network & Queue
+ * 4. ⚡ useAttendanceActions  - จัดการ Action (Clock In/Out)
+ * 5. ⏰ useTodayCheckIn       - จัดการสถานะวันนี้ (Server State)
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-
-// === Services & Repo ===
-import { gpsService } from './gps.service';
-import { offlineService } from './offline.service';
+import { useEffect, useState, useCallback } from 'react';
 import { useGlobalConfig } from '../../contexts/ConfigContext';
-import { attendanceService, attendanceRepo } from '../../di/attendanceDI.js';
-import { DateUtils } from '../../shared/kernel/DateUtils.js';
 import { useTodayCheckIn } from './hooks/useTodayCheckIn';
-
-// ... (other imports)
+import { useLocationTracking } from './hooks/useLocationTracking';
+import { useAttendanceLogs } from './hooks/useAttendanceLogs';
+import { useAttendanceActions } from './hooks/useAttendanceActions';
+import { useOfflineSync } from './hooks/useOfflineSync';
+import { attendanceRepo } from '../../di/attendanceDI';
 
 export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
-    const { companyConfig: globalConfig } = useGlobalConfig();
+    const { companyConfig } = useGlobalConfig();
 
-
-    // --- State ---
+    // === Local State (Server + Instant Updates) ===
     const [todayRecord, setTodayRecord] = useState(null);
-    const [attendanceLogs, setAttendanceLogs] = useState([]);
-    const [schedules, setSchedules] = useState([]);
-    const [todaySchedule, setTodaySchedule] = useState(null);
 
-    // --- Centralized Attendance State ---
+    // Helper: Reload Today's Record manually (for instant update after action)
+    const refreshTodayRecord = useCallback(async () => {
+        if (!userId) return;
+        try {
+            const latest = await attendanceRepo.findLatestByEmployee(userId, new Date());
+            if (latest) setTodayRecord(latest.toPrimitives());
+        } catch (err) {
+            console.error("[Facade] Refresh Error:", err);
+        }
+    }, [userId]);
+
+    // 1. 📡 Network & Offline Sync
+    const { isOffline, pendingCount, syncOfflineData } = useOfflineSync(refreshTodayRecord);
+
+    // 2. 📍 GPS Tracking
+    // Pass config for radius/location check
     const {
-        todayRecord: serverTodayRecord,
-        isCheckedIn: serverIsCheckedIn,
-        isStuck,
-        staleCheckIn
+        location, locationStatus, distance, gpsError, retryGps
+    } = useLocationTracking(companyConfig);
+
+    // 3. 📊 Data Fetching (Read)
+    const {
+        attendanceLogs, schedules, todaySchedule, loading: dataLoading
+    } = useAttendanceLogs(userId, currentMonth);
+
+    // 4. ⏰ Today's Server State (Reactive)
+    const {
+        todayRecord: serverTodayRecord, isStuck, staleCheckIn
     } = useTodayCheckIn(userId);
 
     // Sync Server Record to Local State
@@ -76,662 +67,34 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
         }
     }, [serverTodayRecord]);
 
-    // --- GPS & Location State ---
-    const [location, setLocation] = useState(null);
-    const [locationStatus, setLocationStatus] = useState('loading'); // 'loading' | 'success' | 'error' | 'out-of-range'
-    const [distance, setDistance] = useState(0);
-    const [gpsError, setGpsError] = useState('');
-    const gpsRef = useRef(null);
-
-    // --- System State ---
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [isOffline, setIsOffline] = useState(!navigator.onLine);
-
-    // --- Config บริษัท ---
-    // We can use globalConfig directly, but to keep existing logic minimal changes:
-    const [companyConfig, setCompanyConfig] = useState(null);
-
-    // Sync Global Config to Local State & Init GPS
+    // Initial Load
     useEffect(() => {
-        if (globalConfig) {
-            setCompanyConfig(globalConfig);
-
-            // 2. เริ่มติดตาม GPS (ถ้าเปิดใช้) - moved here
-            if (globalConfig.gpsEnabled !== false) {
-                startGpsTracking(globalConfig);
-            }
-        }
-    }, [globalConfig]); // Only re-run if config object changes (id)
-
-    // ...
-
-    useEffect(() => {
-        if (!userId || !companyId) return;
-
-        let cleanupNetwork = null;
-
-        const initialize = async () => {
-            try {
-                // 1. Config removed (handled by Context)
-
-                // 3. โหลดข้อมูลวันนี้
-                await loadTodayRecord();
-
-                // 4. Sync ข้อมูล offline (ถ้ามี)
-                if (offlineService.isOnline() && offlineService.getPendingCount() > 0) {
-                    await syncOfflineData();
-                }
-
-            } catch (err) {
-                // ...
-            }
-        };
-        // ...
-
-        initialize();
-
-        // ===== ตั้ง Network Listener =====
-        cleanupNetwork = offlineService.subscribeToNetworkStatus(
-            // เมื่อออนไลน์
-            () => {
-                setIsOffline(false);
-                syncOfflineData(); // sync ข้อมูลที่ค้างอยู่
-            },
-            // เมื่อออฟไลน์
-            () => {
-                setIsOffline(true);
-            }
-        );
-
-        // ===== Cleanup เมื่อ unmount =====
-        return () => {
-            // หยุด GPS
-            if (gpsRef.current) {
-                gpsRef.current.stop();
-                gpsRef.current = null;
-            }
-            // ยกเลิก network listener
-            cleanupNetwork?.();
-        };
-    }, [userId, companyId]);
-
-    // ============================
-    // 📊 FETCH LOGS & SCHEDULES (Real-time)
-    // ============================
-    useEffect(() => {
-        if (!userId) return;
-
-        const fetchLogsAndSchedules = async () => {
-            try {
-                const { db } = await import('@/shared/lib/firebase');
-                const { collection, query, where, orderBy, onSnapshot } = await import('firebase/firestore');
-
-                const year = currentMonth.getFullYear();
-                const month = String(currentMonth.getMonth() + 1).padStart(2, '0');
-                const lastDay = new Date(year, currentMonth.getMonth() + 1, 0).getDate();
-                const startOfMonthDate = new Date(year, currentMonth.getMonth(), 1);
-                const startOfMonthStr = `${year}-${month}-01`;
-                const endOfMonthStr = `${year}-${month}-${lastDay}`;
-
-                // === 1. Attendance Logs (New System) ===
-                let newLogs = [];
-                let legacyLogs = [];
-
-                const updateMergedLogs = () => {
-                    // Create a Map to merge duplicates by Date (YYYY-MM-DD)
-                    // Prefer "New Logs" (attendance_logs) over Legacy
-                    const mergedMap = new Map();
-
-                    // Process Legacy First (Base Layer)
-                    legacyLogs.forEach(log => {
-                        if (!log.clockIn) return;
-                        const dateKey = log.clockIn.toDateString();
-                        mergedMap.set(dateKey, log);
-                    });
-
-                    // Process New Logs (Overlay - Higher Priority)
-                    newLogs.forEach(log => {
-                        if (!log.clockIn) return;
-                        const dateKey = log.clockIn.toDateString();
-                        mergedMap.set(dateKey, log);
-                    });
-
-                    // Sort by Date Descending
-                    const finalLogs = Array.from(mergedMap.values())
-                        .sort((a, b) => b.clockIn - a.clockIn);
-
-                    setAttendanceLogs(finalLogs);
-                };
-
-                const qAtt = query(
-                    collection(db, "attendance_logs"),
-                    where("employee_id", "==", userId),
-                    where("clock_in", ">=", startOfMonthStr),
-                    orderBy("clock_in", "desc")
-                );
-
-                const unsubAtt = onSnapshot(qAtt, (snapshot) => {
-                    newLogs = snapshot.docs.map(doc => {
-                        const data = doc.data();
-                        return {
-                            id: doc.id,
-                            ...data,
-                            clockIn: data.clock_in ? new Date(data.clock_in) : null,
-                            clockOut: data.clock_out ? new Date(data.clock_out) : null,
-                            userId: data.employee_id,
-                            clockInLocation: data.clock_in_location || data.location || null,
-                            clockOutLocation: data.clock_out_location || null,
-                            workMinutes: data.work_minutes || 0,
-                            date: data.clock_in ? new Date(data.clock_in) : new Date(), // ✅ Add date field
-                        };
-                    });
-                    updateMergedLogs();
-                });
-
-                // === 2. Attendance (Legacy System Fallback) ===
-                // Helper to get End of Month Date
-                const endOfMonthDate = new Date(year, currentMonth.getMonth() + 1, 0, 23, 59, 59);
-
-                const qLegacy = query(
-                    collection(db, "attendance"),
-                    where("userId", "==", userId),
-                    where("createdAt", ">=", startOfMonthDate),
-                    where("createdAt", "<=", endOfMonthDate),
-                    orderBy("createdAt", "asc")
-                );
-
-                const unsubLegacy = onSnapshot(qLegacy, (snapshot) => {
-                    // Group Legacy Docs (Individual Events) by Date
-                    const groups = {};
-                    snapshot.docs.forEach(doc => {
-                        const d = doc.data();
-                        // Deduce Date Key
-                        let dateKey = d.date;
-                        if (!dateKey && d.createdAt) {
-                            const dateObj = d.createdAt.toDate();
-                            const y = dateObj.getFullYear();
-                            const m = String(dateObj.getMonth() + 1).padStart(2, '0');
-                            const day = String(dateObj.getDate()).padStart(2, '0');
-                            dateKey = `${y}-${m}-${day}`;
-                        }
-                        if (!dateKey) return;
-
-                        if (!groups[dateKey]) {
-                            groups[dateKey] = {
-                                id: doc.id,
-                                userId: d.userId,
-                                status: 'on-time' // default
-                            };
-                        }
-
-                        if (d.type === 'clock-in' || d.actionType === 'clock-in') {
-                            groups[dateKey].clockIn = d.createdAt?.toDate() || new Date(d.localTimestamp);
-                            groups[dateKey].clockInLocation = d.location;
-                            groups[dateKey].status = d.status || 'on-time';
-                        } else if (d.type === 'clock-out' || d.actionType === 'clock-out') {
-                            groups[dateKey].clockOut = d.createdAt?.toDate() || new Date(d.localTimestamp);
-                            groups[dateKey].clockOutLocation = d.location;
-                        }
-                    });
-
-                    legacyLogs = Object.values(groups).map(g => ({
-                        ...g,
-                        hasRecord: true,
-                        date: g.clockIn || new Date() // Helper for sorting
-                    }));
-
-                    updateMergedLogs();
-                });
-
-                // === Schedules (Real-time) ===
-                const qSch = query(
-                    collection(db, "schedules"),
-                    where("userId", "==", userId),
-                    where("date", ">=", startOfMonthStr),
-                    where("date", "<=", endOfMonthStr)
-                );
-
-                const unsubSch = onSnapshot(qSch, (snapshot) => {
-                    const schDocs = snapshot.docs.map(doc => doc.data());
-                    setSchedules(schDocs);
-
-                    // คำนวณ todaySchedule
-                    const today = new Date();
-                    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-                    const todaySch = schDocs.find(s => s.date === todayStr);
-                    setTodaySchedule(todaySch);
-                });
-
-                return () => {
-                    unsubAtt();
-                    unsubLegacy();
-                    unsubSch();
-                };
-            } catch (err) {
-                console.error('[useMyAttendance] Fetch logs error:', err);
-            }
-        };
-
-        const cleanup = fetchLogsAndSchedules();
-        return () => cleanup?.then(fn => fn?.());
-    }, [userId, currentMonth]);
-
-    // ============================
-    // 📍 GPS FUNCTIONS
-    // ============================
-
-    /**
-     * ลอง GPS แบบ low accuracy (fallback)
-     */
-    const startGpsTrackingLowAccuracy = useCallback((config) => {
-        const { watchId, stop } = gpsService.startTracking({
-            highAccuracy: false,
-
-            onSuccess: (pos) => {
-                setLocation(pos);
-                setLocationStatus('success');
-
-                if (config?.location) {
-                    const dist = gpsService.calculateDistance(
-                        pos.lat, pos.lng,
-                        config.location.lat, config.location.lng
-                    );
-                    setDistance(Math.round(dist));
-
-                    if (dist <= (config.radius || 350)) {
-                        setLocationStatus('success');
-                    } else {
-                        setLocationStatus('out-of-range');
-                    }
-                }
-            },
-
-            onError: (errInfo) => {
-                setLocationStatus('error');
-                setGpsError(errInfo.message);
-            }
-        });
-
-        gpsRef.current = { watchId, stop };
-    }, []);
-
-    /**
-     * เริ่มติดตาม GPS
-     * @param {Object} config - config บริษัท
-     */
-    const startGpsTracking = useCallback((config) => {
-        // Cleaning up previous watcher if exists before starting new one (Safety Check)
-        if (gpsRef.current) {
-            gpsRef.current.stop();
-        }
-
-        setLocationStatus('loading');
-        setGpsError('');
-
-        // ✨ Quick Fix: ขอพิกัดทันที 1 ครั้ง (เหมือนไฟล์ Backup)
-        // เพื่อให้ได้ค่าเร็วที่สุดก่อนที่ Watcher จะทำงาน
-        gpsService.getCurrentPosition(false) // false = Low Accuracy for speed
-            .then((pos) => {
-                // Return formatted address like legacy code
-                const address = `Lat: ${pos.lat.toFixed(5)}, Lng: ${pos.lng.toFixed(5)} (±${Math.round(pos.accuracy)}m)`;
-                setLocation({ ...pos, address });
-
-                // คำนวณระยะทันที
-                if (config?.location) {
-                    setDistance(Math.round(dist));
-
-                    if (dist <= (config.radius || 350)) {
-                        setLocationStatus('success');
-                    } else {
-                        setLocationStatus('out-of-range');
-                    }
-                } else {
-                    setLocationStatus('success');
-                }
-            })
-            .catch((err) => {
-                // ...
-            });
-
-        const { watchId, stop } = gpsService.startTracking({
-            highAccuracy: true,
-
-            onSuccess: (pos) => {
-                // Return formatted address like legacy code
-                const address = `Lat: ${pos.lat.toFixed(5)}, Lng: ${pos.lng.toFixed(5)} (±${Math.round(pos.accuracy)}m)`;
-                setLocation({ ...pos, address });
-
-                // เช็คระยะทันที ไม่ set success มั่วซั่ว
-                if (config?.location) {
-                    const dist = gpsService.calculateDistance(
-                        pos.lat, pos.lng,
-                        config.location.lat, config.location.lng
-                    );
-                    setDistance(Math.round(dist));
-
-                    if (dist <= (config.radius || 350)) {
-                        setLocationStatus('success');
-                    } else {
-                        setLocationStatus('out-of-range');
-                    }
-                } else {
-                    setLocationStatus('success'); // ไม่มี config location ถือว่าผ่าน
-                }
-            },
-
-            onError: (errInfo) => {
-                // ถ้า High Accuracy พัง -> ลอง Low Accuracy แค่ครั้งเดียวพอ
-                if (errInfo.shouldFallback) {
-                    console.log('[GPS] Switching to Low Accuracy mode...');
-                    startGpsTrackingLowAccuracy(config);
-                } else {
-                    setLocationStatus('error');
-                    setGpsError(errInfo.message);
-                }
-            }
-        });
-
-        // เก็บ reference
-        gpsRef.current = { watchId, stop };
-    }, [startGpsTrackingLowAccuracy]);
-
-    /**
-     * ลอง GPS ใหม่ (เมื่อ user กดปุ่ม retry)
-     */
-    const retryGps = useCallback(() => {
-        // หยุด watcher เก่า
-        if (gpsRef.current) {
-            gpsRef.current.stop();
-        }
-        // เริ่มใหม่
-        if (companyConfig) {
-            startGpsTracking(companyConfig);
-        }
-    }, [companyConfig, startGpsTracking]);
-
-    // ============================
-    // ⏰ CLOCK IN/OUT FUNCTIONS
-    // ============================
-
-    /**
-     * โหลดข้อมูลลงเวลาวันนี้
-     */
-    const loadTodayRecord = async () => {
-        if (!userId) return;
-
-        try {
-            // ✅ ใช้ Repo ใหม่ดึงข้อมูล
-            const logDomain = await attendanceRepo.findLatestByEmployee(userId, new Date());
-            setTodayRecord(logDomain ? logDomain.toPrimitives() : null);
-        } catch (err) {
-            console.error('[useMyAttendance] Load today error:', err);
-        }
-    };
-
-    /**
-     * ลงเวลาเข้า
-     * 
-     * @param {Object} options - ตัวเลือกเสริม
-     * @param {Object} options.scheduleData - ข้อมูลกะ (สำหรับคำนวณสาย)
-     * @returns {Promise<Object>} { success, isLate, message }
-     */
-    const clockIn = async (options = {}) => {
-        setLoading(true);
-        setError(null);
-
-        try {
-            // ตรวจสอบว่ามีตำแหน่งไหม
-            if (!location) {
-                throw new Error('ไม่สามารถระบุตำแหน่งได้ กรุณารอสักครู่');
-            }
-
-            // ตรวจสอบว่าอยู่ในรัศมีไหม
-            if (locationStatus === 'out-of-range') {
-                throw new Error(`คุณอยู่นอกรัศมีบริษัท (${distance} เมตร)`);
-            }
-
-            // คำนวณเวลาเข้างานตามกะ (รวม Grace Period)
-            let scheduleTime = null;
-            if (options.scheduleData?.startTime) {
-                const [sh, sm] = options.scheduleData.startTime.split(':').map(Number);
-                scheduleTime = new Date();
-                scheduleTime.setHours(sh, sm + (companyConfig?.deduction?.gracePeriod || 0), 0, 0);
-            }
-
-            // เตรียมข้อมูล
-            const attendanceData = {
-                companyId,
-                userId,
-                actionType: 'clock-in',
-                location: {
-                    lat: location.lat,
-                    lng: location.lng,
-                    address: location.address
-                },
-                localTimestamp: new Date().toISOString(),
-                shiftStart: scheduleTime ? scheduleTime.toISOString() : null // ✅ เก็บไว้ใช้ทั้ง Online/Offline
-            };
-
-            // ===== ถ้า Offline → เก็บไว้ใน Queue =====
-            if (!offlineService.isOnline()) {
-                offlineService.addToQueue(attendanceData);
-                setTodayRecord({ ...attendanceData, _offline: true });
-                return {
-                    success: true,
-                    isLate: false,
-                    message: 'บันทึกไว้ในเครื่อง จะอัปโหลดเมื่อมีเน็ต',
-                    offline: true
-                };
-            }
-
-            // ===== Online → Call Domain Service =====
-            const result = await attendanceService.clockIn(
-                userId,
-                companyId, // ✅ Pass companyId
-                attendanceData.location,
-                new Date(attendanceData.localTimestamp),
-                scheduleTime
-            );
-
-            if (result.isFailure) {
-                throw new Error(result.error);
-            }
-
-            await loadTodayRecord();
-
-            // Check resulting status for UI message
-            const newLog = result.getValue();
-            const isLate = newLog.status === 'late';
-
-            return {
-                success: true,
-                isLate: isLate,
-                message: isLate
-                    ? (companyConfig?.greeting?.late || 'มาสายนะ')
-                    : (companyConfig?.greeting?.onTime || 'บันทึกสำเร็จ!')
-            };
-
-        } catch (err) {
-            setError(err.message);
-            return { success: false, message: err.message };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    /**
-     * ลงเวลาออก
-     * 
-     * @returns {Promise<Object>} { success, message }
-     */
-    const clockOut = async () => {
-        setLoading(true);
-        setError(null);
-
-        try {
-            // ตรวจสอบว่ามีตำแหน่งไหม
-            if (!location) {
-                throw new Error('ไม่สามารถระบุตำแหน่งได้ กรุณารอสักครู่');
-            }
-
-            const now = new Date();
-
-            const attendanceData = {
-                companyId,
-                userId,
-                actionType: 'clock-out',
-                location: {
-                    lat: location.lat,
-                    lng: location.lng,
-                    address: location.address // Send address if avail
-                },
-                localTimestamp: now.toISOString()
-            };
-
-            // ===== ถ้า Offline =====
-            if (!offlineService.isOnline()) {
-                offlineService.addToQueue(attendanceData);
-                setTodayRecord(prev => ({ ...prev, clockOut: now, _offline: true }));
-                return {
-                    success: true,
-                    message: 'บันทึกไว้ในเครื่อง จะอัปโหลดเมื่อมีเน็ต',
-                    offline: true
-                };
-            }
-
-            // ===== Online → Call Service =====
-            const result = await attendanceService.clockOut(userId, attendanceData.location);
-
-            if (result.isFailure) {
-                throw new Error(result.error);
-            }
-
-            const finalLog = result.getValue();
-            await loadTodayRecord();
-
-            return {
-                success: true,
-                message: `เลิกงานแล้ว! (ทำไป ${finalLog.workMinutes} นาที)`
-            };
-
-        } catch (err) {
-            setError(err.message);
-            return { success: false, message: err.message };
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // ============================
-    // 🔄 SYNC OFFLINE DATA
-    // ============================
-
-    /**
-     * Sync ข้อมูลที่บันทึกไว้ขณะ offline
-     */
-    const syncOfflineData = async () => {
-        const result = await offlineService.syncPendingData(
-            // ฟังก์ชันอัปโหลดแต่ละ item
-            async (item) => {
-                const ts = item.localTimestamp ? new Date(item.localTimestamp) : new Date();
-                const loc = item.location;
-
-                if (item.actionType === 'clock-in') {
-                    // Pass specific timestamp for offline data
-                    const shiftStart = item.shiftStart ? new Date(item.shiftStart) : null;
-                    // Note: Offline data stores companyId in item
-                    await attendanceService.clockIn(item.userId, item.companyId, loc, ts, shiftStart);
-                } else {
-                    await attendanceService.clockOut(item.userId, loc, ts);
-                }
-            },
-            // callback ความคืบหน้า
-            (progress) => {
-                console.log(`[Sync] ${progress.current}/${progress.total}`);
-            }
-        );
-
-        // โหลดข้อมูลใหม่หลัง sync
-        if (result.success > 0) {
-            await loadTodayRecord();
-        }
-
-        return result;
-    };
-
-    // ============================
-    // 📋 HISTORY FUNCTIONS
-    // ============================
-
-    /**
-     * ดึงประวัติการลงเวลา
-     * 
-     * @param {Date} startDate - วันเริ่มต้น
-     * @param {Date} endDate - วันสิ้นสุด
-     * @returns {Promise<Array>} รายการลงเวลา
-     */
-    const getHistory = async (startDate, endDate) => {
-        try {
-            setLoading(true);
-            const records = await attendanceRepo.getRecordsByUser(userId, startDate, endDate);
-            return records;
-        } catch (err) {
-            console.error('[useMyAttendance] Get history error:', err);
-            throw err;
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // ============================
-    // 📦 RETURN
-    // ============================
+        refreshTodayRecord();
+    }, [refreshTodayRecord]);
+
+    // 5. ⚡ Actions (Write)
+    const {
+        clockIn, clockOut, submitRetroRequest, getHistory, closeStaleShift, loading: actionLoading, error: actionError
+    } = useAttendanceActions({
+        userId,
+        companyId,
+        location,
+        locationStatus,
+        distance,
+        isOffline,
+        companyConfig,
+        onSuccess: refreshTodayRecord // Callback to update local state immediately
+    });
 
     // ===================================================
-    // 📝 SUBMIT RETRO REQUEST (ขอแก้ไขย้อนหลัง)
+    // 🎯 RETURN UNIFIED API
     // ===================================================
-    const submitRetroRequest = useCallback(async (data) => {
-        if (!userId || !companyId) {
-            return { success: false, message: 'ไม่พบ userId หรือ companyId' };
-        }
-
-        try {
-            const { db } = await import('@/shared/lib/firebase');
-            const { addDoc, collection, serverTimestamp } = await import('firebase/firestore');
-
-            await addDoc(collection(db, "requests"), {
-                companyId,
-                userId,
-                userName: data.userName || '',
-                type: 'retro',
-                status: 'pending',
-                // ✅ FIX: Store at top-level (consistent with RequestForm.jsx & approveRequest)
-                date: data.date,
-                timeIn: data.timeIn,
-                timeOut: data.timeOut,
-                location: data.location || '',
-                reason: data.reason,
-                createdAt: serverTimestamp()
-            });
-
-            return { success: true, message: 'ส่งคำขอแก้เวลาเรียบร้อยแล้ว' };
-        } catch (err) {
-            console.error('[submitRetroRequest] Error:', err);
-            return { success: false, message: 'เกิดข้อผิดพลาด: ' + err.message };
-        }
-    }, [userId, companyId]);
-
-    // ===================================================
-    // 🎯 RETURN
-    // ===================================================
-
     return {
-        // === ข้อมูล ===
+        // === Data ===
         todayRecord,
-        attendanceLogs,   // ✅ ประวัติรายเดือน
-        schedules,        // ✅ ตารางเวลารายเดือน
-        todaySchedule,    // ✅ ตารางเวลาวันนี้
+        attendanceLogs,
+        schedules,
+        todaySchedule,
 
         // === GPS ===
         location,
@@ -740,26 +103,24 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
         gpsError,
         retryGps,
 
-        // === Config ===
+        // === Status & Config ===
         companyConfig,
-
-        // === สถานะ ===
-        loading,
-        error,
+        loading: dataLoading || actionLoading,
+        error: actionError,
         isOffline,
-        pendingOfflineCount: offlineService.getPendingCount(),
+        pendingOfflineCount: pendingCount,
 
         // === Actions ===
         clockIn,
         clockOut,
-        syncOfflineData,
-        submitRetroRequest,  // ✅ ส่งขอแก้ไขย้อนหลัง
+        submitRetroRequest,
         getHistory,
-        reload: loadTodayRecord,
+        reload: refreshTodayRecord,
+        syncOfflineData,
 
-        // Centralized exposed
+        // === Stale Shift Management ===
         isStuck,
         staleCheckIn,
-        closeStaleShift: (logId, time, reason) => attendanceService.closeStaleShift(userId, logId, time, reason)
+        closeStaleShift
     };
 }

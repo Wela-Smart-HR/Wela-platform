@@ -18,7 +18,7 @@ export default function Payroll() {
         // Actions
         loadCycles, handleCreateCycle, handleSelectCycle, handleDeleteCycle,
         handleOpenEmp, handleUpdateEmp, handleSaveEmpSheet,
-        handleConfirmPayment, handleRemovePayment,
+        handleLockCycle, handleConfirmPayment, handleRemovePayment,
         goBack
     } = usePayrollSystem();
 
@@ -28,19 +28,7 @@ export default function Payroll() {
             {/* View Switcher */}
             {view === 'cycles' && (
                 <div className="relative">
-                    <button
-                        onClick={() => {
-                            if (confirm("Cleanup duplicates?")) {
-                                import('../../features/people/services/cleanup.service').then(({ UserCleanupService }) => {
-                                    UserCleanupService.cleanupDuplicates(cycles[0]?.companyId || 'comp_1704954200820').then(res => alert(`Fixed ${res.count} items`));
-                                });
-                            }
-                        }}
-                        className="absolute top-0 right-0 z-50 text-[10px] text-gray-300 hover:text-red-500 underline"
-                        style={{ marginTop: '-20px' }}
-                    >
-                        Fix DB
-                    </button>
+
                     <CycleList
                         cycles={cycles}
                         totals={stats} // stats: { totalNet, totalPaid, count }
@@ -59,6 +47,7 @@ export default function Payroll() {
                     onBack={goBack}
                     onSelectEmployee={handleOpenEmp}
                     onDeleteCycle={handleDeleteCycle}
+                    onLockCycle={handleLockCycle}
                     isLoading={isLoading}
                 />
             )}
@@ -72,6 +61,7 @@ export default function Payroll() {
 
             <EmployeeDetailSheet
                 emp={activeEmp}
+                activeCycle={activeCycle}
                 isOpen={!!activeEmp}
                 onClose={() => setActiveEmp(null)}
                 // Use handleUpdateEmp for field changes (Real-time Calc)

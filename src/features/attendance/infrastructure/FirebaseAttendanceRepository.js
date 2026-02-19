@@ -277,4 +277,87 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
             lateMinutes: 0
         }).getValue();
     }
+    /**
+     * Subscribe to Attendance Logs (Real-time)
+     * Merges New & Legacy Logs
+     */
+    subscribeToLogs(userId, startDate, endDate, callback) {
+        // Use dynamic imports if needed, or assume they are available from module scope
+        // helper to unsubscribe all
+        const unsubs = [];
+
+        try {
+            // === 1. New Logs ===
+            const q = query(
+                collection(db, this.collectionName),
+                where("employee_id", "==", userId),
+                where("clock_in", ">=", startDate.toISOString()),
+                where("clock_in", "<=", endDate.toISOString()),
+                orderBy("clock_in", "desc")
+            );
+
+            let newLogsCandidate = [];
+            let legacyLogsCandidate = [];
+
+            // Internal helper to merge and callback
+            const pushUpdate = () => {
+                const mergedMap = new Map();
+
+                // 2. Process Legacy (Base)
+                legacyLogsCandidate.forEach(log => {
+                    if (!log.clockIn) return;
+                    const key = log.clockIn.toDateString();
+                    mergedMap.set(key, log);
+                });
+
+                // 3. Process New (Overlay)
+                newLogsCandidate.forEach(log => {
+                    if (!log.clockIn) return;
+                    const key = log.clockIn.toDateString();
+                    mergedMap.set(key, log);
+                });
+
+                // 4. Sort & Emit
+                const finalLogs = Array.from(mergedMap.values())
+                    .sort((a, b) => b.clockIn - a.clockIn);
+
+                callback(finalLogs);
+            };
+
+            const unsubNew = onSnapshot(q, (snapshot) => {
+                newLogsCandidate = snapshot.docs.map(doc => this.toDomain(doc.id, doc.data())).filter(Boolean);
+                pushUpdate();
+            });
+            unsubs.push(unsubNew);
+
+            // === 2. Legacy Logs ===
+            // Note: Legacy query needs careful date handling (Date object vs String)
+            // The original code used Date objects for legacy query
+            const legacyQ = query(
+                collection(db, 'attendance'),
+                where("userId", "==", userId),
+                where("createdAt", ">=", startDate),
+                where("createdAt", "<=", endDate),
+                orderBy("createdAt", "asc")
+            );
+
+            const unsubLegacy = onSnapshot(legacyQ, (snapshot) => {
+                // Use the helper _processLegacySnapshots which returns Domain Entities
+                // But wait, _processLegacySnapshots expects ALL docs for grouping.
+                // onSnapshot returns all docs in query? Yes.
+                legacyLogsCandidate = this._processLegacySnapshots(snapshot.docs);
+                pushUpdate();
+            });
+            unsubs.push(unsubLegacy);
+
+        } catch (err) {
+            console.error("[Repo] Subscribe Error:", err);
+            // Don't crash, just log. Callback might not fire.
+        }
+
+        // Return Unsubscribe All function
+        return () => {
+            unsubs.forEach(fn => fn());
+        };
+    }
 }

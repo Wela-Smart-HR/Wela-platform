@@ -14,7 +14,38 @@ export const NewCycleModal = ({ isOpen, onClose, onCreate }) => {
 
     if (!isOpen) return null;
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
+        // Validate: Check if the period has ended yet
+        const [year, month] = form.month.split('-').map(Number);
+        let endDay;
+        if (form.period === 'first') {
+            endDay = new Date(year, month - 1, 15); // 15th
+        } else if (form.period === 'second') {
+            endDay = new Date(year, month, 0); // Last day of month
+        } else {
+            endDay = new Date(year, month, 0); // Last day of month
+        }
+
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        if (endDay > today) {
+            const { default: Swal } = await import('sweetalert2');
+            const result = await Swal.fire({
+                icon: 'warning',
+                title: 'รอบยังไม่สิ้นสุด',
+                html: `<p class="text-sm">วันสิ้นสุดรอบ: <strong>${endDay.toLocaleDateString('th-TH', { dateStyle: 'long' })}</strong></p>
+                       <p class="text-sm text-gray-500 mt-1">ข้อมูลอาจไม่ครบถ้วน เนื่องจากยังไม่ถึงวันสิ้นสุดรอบ</p>`,
+                showCancelButton: true,
+                confirmButtonText: 'สร้างเลย',
+                cancelButtonText: 'ยกเลิก',
+                confirmButtonColor: '#2563EB',
+                cancelButtonColor: '#ef4444',
+                customClass: { popup: 'rounded-3xl', confirmButton: 'rounded-xl', cancelButton: 'rounded-xl' }
+            });
+            if (!result.isConfirmed) return;
+        }
+
         onCreate(form);
         onClose();
     };

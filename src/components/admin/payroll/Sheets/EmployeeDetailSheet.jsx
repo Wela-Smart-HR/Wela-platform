@@ -5,6 +5,7 @@ import { LogsTab } from './LogsTab';
 
 export const EmployeeDetailSheet = ({
     emp,
+    activeCycle,
     isOpen,
     onClose,
     onSave, // Function to save edits
@@ -77,7 +78,11 @@ export const EmployeeDetailSheet = ({
                                 onRemovePayment={onRemovePayment}
                             />
                         ) : (
-                            <LogsTab logs={emp.logsSnapshot || []} />
+                            <LogsTab
+                                logs={emp.logsSnapshot || []}
+                                startDate={activeCycle?.startDate}
+                                endDate={activeCycle?.endDate}
+                            />
                         )}
                     </div>
                 </div>

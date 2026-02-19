@@ -108,6 +108,39 @@ export class PayrollCalculator {
     }
 
     /**
+     * Calculate Late Deduction
+     * Rules:
+     * 1. Check Grace Period (if late <= grace, no deduction)
+     * 2. Deduct = Minutes * Rate
+     * 3. Cap at Max Deduction
+     * 
+     * @param {number} lateMinutes 
+     * @param {Object} config { gracePeriod, deductionPerMinute, maxDeduction }
+     * @returns {number} Deduction Amount (THB)
+     */
+    static calculateLateDeduction(lateMinutes, config) {
+        const mins = Number(lateMinutes) || 0;
+        if (mins <= 0) return 0;
+
+        const grace = Number(config?.gracePeriod) || 0;
+        const rate = Number(config?.deductionPerMinute) || 0;
+        const max = Number(config?.maxDeduction) || 0;
+
+        // 1. Grace Period Condition
+        if (mins <= grace) return 0;
+
+        // 2. Calculation (Full penalty if grace exceeded)
+        let amount = new Decimal(mins).times(rate);
+
+        // 3. Max Limit
+        if (max > 0 && amount.greaterThan(max)) {
+            amount = new Decimal(max);
+        }
+
+        return amount.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+    }
+
+    /**
      * Calculate Net Total
      * @param {Object} items
      * @returns {number} Net Total

@@ -66,4 +66,35 @@ describe('PayrollCalculator (The Brain)', () => {
             expect(tax).toBe(10197.92);
         });
     });
+
+    // ✅ Test 4: Late Deduction (New 2026 Logic)
+    describe('calculateLateDeduction', () => {
+        const config = {
+            gracePeriod: 5,         // 5 mins grace
+            deductionPerMinute: 10,  // 10 THB/min
+            maxDeduction: 500        // Max 500 THB
+        };
+
+        test('Not late (0 mins): Should be 0', () => {
+            expect(PayrollCalculator.calculateLateDeduction(0, config)).toBe(0);
+        });
+
+        test('Within Grace Period (5 mins): Should be 0', () => {
+            expect(PayrollCalculator.calculateLateDeduction(5, config)).toBe(0);
+        });
+
+        test('Exceed Grace Period (6 mins): Should deduct full amount', () => {
+            // 6 mins * 10 = 60
+            expect(PayrollCalculator.calculateLateDeduction(6, config)).toBe(60);
+        });
+
+        test('High Lateness (60 mins): Should deduct correctly', () => {
+            // 60 mins * 10 = 600 -> But Cap is 500
+            expect(PayrollCalculator.calculateLateDeduction(60, config)).toBe(500);
+        });
+
+        test('No config provided: Should fallback cleanly', () => {
+            expect(PayrollCalculator.calculateLateDeduction(10, {})).toBe(0);
+        });
+    });
 });

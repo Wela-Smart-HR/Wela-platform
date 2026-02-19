@@ -26,6 +26,7 @@
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.9.6",
     "recharts": "^3.6.0",
+    "sweetalert2": "^11.26.19",
     "tailwind-merge": "^3.4.0",
     "uuid": "^13.0.0"
   },

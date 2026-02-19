@@ -152,6 +152,14 @@ export const DeductionSection = ({
                     <Plus weight="bold" /> เพิ่มรายการ
                 </button>
             </div>
+
+            {/* Warning Note for Late Deduction */}
+            <div className="mt-2 p-2 bg-yellow-50 rounded-lg border border-yellow-100 flex gap-2 items-start">
+                <div className="text-yellow-500 mt-0.5 shrink-0">⚠️</div>
+                <p className="text-[10px] text-yellow-700 leading-tight">
+                    หมายเหตุ: ระบบคำนวณหักสายตามเวลาจริงเทียบกะงาน หากมีการแก้กะย้อนหลัง ยอดนี้อาจไม่อัปเดต
+                </p>
+            </div>
         </div>
     );
 };

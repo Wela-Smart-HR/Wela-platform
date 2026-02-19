@@ -5,6 +5,7 @@ import {
 } from 'firebase/firestore';
 
 import { useGlobalConfig } from '../../contexts/ConfigContext';
+import Swal from 'sweetalert2';
 
 /**
  * Hook for payroll management (admin perspective)
@@ -178,7 +179,16 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
             setIsMonthPaid(false); // คำนวณใหม่ = เปิดงวดใหม่
             setLoading(false);
 
-        } catch (err) { console.error("Calc Error:", err); setLoading(false); alert("Error: " + err.message); }
+        } catch (err) {
+            console.error("Calc Error:", err);
+            setLoading(false);
+            Swal.fire({
+                icon: 'error',
+                title: 'เกิดข้อผิดพลาด',
+                text: err.message,
+                confirmButtonColor: '#2563EB'
+            });
+        }
     };
 
     const savePayslip = async (payslipData) => {
@@ -195,7 +205,27 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
     // 3. ฟังก์ชันปิดงวด (Confirm Payment)
     const confirmMonthPayment = async () => {
         if (payrollData.length === 0) return;
-        if (!window.confirm("ยืนยันการปิดงวดบัญชีเดือนนี้?\n\n- ข้อมูลจะถูกล็อกและแก้ไขไม่ได้\n- สถานะจะเปลี่ยนเป็น 'จ่ายแล้ว (Paid)'")) return;
+
+        const result = await Swal.fire({
+            title: 'ยืนยันการปิดงวดบัญชีเดือนนี้?',
+            html: `<div class="text-sm text-left">
+                    <p>- ข้อมูลจะถูกล็อกและแก้ไขไม่ได้</p>
+                    <p>- สถานะจะเปลี่ยนเป็น 'จ่ายแล้ว (Paid)'</p>
+                   </div>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#2563EB',
+            cancelButtonColor: '#ef4444',
+            confirmButtonText: 'ยืนยันปิดงวด',
+            cancelButtonText: 'ยกเลิก',
+            customClass: {
+                popup: 'rounded-3xl',
+                confirmButton: 'rounded-xl px-6 py-2.5',
+                cancelButton: 'rounded-xl px-6 py-2.5'
+            }
+        });
+
+        if (!result.isConfirmed) return;
 
         setLoading(true);
         try {
@@ -213,11 +243,24 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
             setPayrollData(prev => prev.map(p => ({ ...p, status: 'paid' })));
             setIsMonthPaid(true);
             setLoading(false);
-            alert("ปิดงวดเรียบร้อย! ข้อมูลถูกล็อกแล้ว 🔒");
+
+            Swal.fire({
+                icon: 'success',
+                title: 'ปิดงวดเรียบร้อย!',
+                text: 'ข้อมูลถูกล็อกแล้ว 🔒',
+                confirmButtonColor: '#2563EB',
+                timer: 2000,
+                showConfirmButton: false
+            });
         } catch (e) {
             console.error(e);
             setLoading(false);
-            alert("เกิดข้อผิดพลาด: " + e.message);
+            Swal.fire({
+                icon: 'error',
+                title: 'เกิดข้อผิดพลาด',
+                text: e.message,
+                confirmButtonColor: '#2563EB'
+            });
         }
     };
 
