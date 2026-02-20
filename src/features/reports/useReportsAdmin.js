@@ -124,8 +124,8 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                     return {
                         ...data,
                         userId: data.employee_id,
-                        createdAt: data.clock_in ? new Date(data.clock_in) : null,
-                        clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                        createdAt: data.clock_in?.toDate ? data.clock_in.toDate() : (data.clock_in ? new Date(data.clock_in) : null),
+                        clockOut: data.clock_out?.toDate ? data.clock_out.toDate() : (data.clock_out ? new Date(data.clock_out) : null),
                         status: data.status || 'on-time',
                         lateMins: data.late_minutes || 0,
                     };
@@ -136,9 +136,7 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                     const dateStr = toISODate(d);
 
                     const attForDay = logsData.filter(a => {
-                        if (!a.createdAt) return false;
-                        const createdDate = toISODate(a.createdAt);
-                        return createdDate === dateStr;
+                        return a.shift_date === dateStr;
                     });
 
                     const present = attForDay.length;
@@ -228,9 +226,11 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                 return {
                     ...data,
                     userId: data.employee_id,
-                    createdAt: data.clock_in ? new Date(data.clock_in) : null,
-                    clockOut: data.clock_out ? new Date(data.clock_out) : null,
-                    date: data.clock_in ? data.clock_in.split('T')[0] : ''
+                    createdAt: data.clock_in ? (data.clock_in?.toDate ? data.clock_in.toDate() : new Date(data.clock_in)) : null,
+                    clockOut: data.clock_out ? (data.clock_out?.toDate ? data.clock_out.toDate() : new Date(data.clock_out)) : null,
+                    date: data.shift_date || (data.clock_in ? (data.clock_in?.toDate ? data.clock_in.toDate() : new Date(data.clock_in)).toISOString().split('T')[0] : ''),
+                    status: data.status || 'on-time',
+                    lateMins: data.late_minutes || 0
                 };
             });
             const schedules = schSnap.docs.map(d => d.data());
@@ -442,8 +442,8 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                     name: emp.name,
                     avatar: emp.avatar,
                     hasAttendance: !!att,
-                    clockIn: att?.createdAt ? (att.createdAt.toDate ? att.createdAt.toDate() : new Date(att.createdAt)) : null,
-                    clockOut: att?.clockOut ? (att.clockOut.toDate ? att.clockOut.toDate() : new Date(att.clockOut)) : null,
+                    clockIn: att?.createdAt ? (att.createdAt instanceof Date ? att.createdAt : (att.createdAt?.toDate ? att.createdAt.toDate() : new Date(att.createdAt))) : null,
+                    clockOut: att?.clockOut ? (att.clockOut instanceof Date ? att.clockOut : (att.clockOut?.toDate ? att.clockOut.toDate() : new Date(att.clockOut))) : null,
                     status: att?.status || 'absent',
                     lateMins: att?.lateMins || 0
                 };

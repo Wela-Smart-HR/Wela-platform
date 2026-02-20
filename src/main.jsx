@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
 import { db } from './shared/lib/firebase'
-import { collection, query, getDocs, doc, writeBatch } from 'firebase/firestore'
+import { collection, query, getDocs, doc, writeBatch, where } from 'firebase/firestore'
 
 window.fixFebDataV2 = async () => {
   console.log("Fetching ALL legacy daily_attendance...");
@@ -64,6 +64,42 @@ window.fixFebDataV2 = async () => {
     }
   } catch (e) {
     console.error("Migration Error:", e);
+  }
+};
+
+window.inspectLogs = async () => {
+  const snap = await getDocs(query(collection(db, "attendance_logs"), where("company_id", "==", "COMP-1768062566486")));
+  console.log(`Total attendance logs: ${snap.docs.length}`);
+  snap.docs.forEach(d => {
+    const data = d.data();
+    console.log(`ID: ${d.id}, shift_date: ${data.shift_date}, in: ${data.clock_in?.toDate ? data.clock_in.toDate().toISOString() : data.clock_in}, out: ${data.clock_out?.toDate ? data.clock_out.toDate().toISOString() : data.clock_out}`);
+  });
+};
+
+window.patchShiftDates = async () => {
+  const snap = await getDocs(query(collection(db, "attendance_logs"), where("company_id", "==", "COMP-1768062566486")));
+  const batch = writeBatch(db);
+  let count = 0;
+
+  snap.docs.forEach(d => {
+    const data = d.data();
+    if (!data.shift_date && data.clock_in) {
+      // Reconstruct shift_date from physical clock_in Timezone 
+      const jsDate = data.clock_in.toDate ? data.clock_in.toDate() : new Date(data.clock_in);
+      // Assuming Thailand timezone, adjust if necessary but usually toLocaleDateString works best
+      // Safe format: YYYY-MM-DD
+      const yyyyMMDD = `${jsDate.getFullYear()}-${String(jsDate.getMonth() + 1).padStart(2, '0')}-${String(jsDate.getDate()).padStart(2, '0')}`;
+      batch.update(d.ref, { shift_date: yyyyMMDD });
+      count++;
+      console.log(`Patching ID ${d.id} to shift_date: ${yyyyMMDD}`);
+    }
+  });
+
+  if (count > 0) {
+    await batch.commit();
+    console.log(`✅ SUCCESS: Patched ${count} records with shift_date!`);
+  } else {
+    console.log("✅ All records already have shift_date.");
   }
 };
 // --- TEMPORARY FIX SCRIPT ---

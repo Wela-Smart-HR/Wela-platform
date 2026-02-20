@@ -25,6 +25,7 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
         return {
             company_id: data.company_id,
             employee_id: data.employee_id,
+            shift_date: data.shift_date, // ✅ FIX: Include shift_date for Admin query filters
             clock_in: data.clock_in ? data.clock_in.toISOString() : null,
             clock_out: data.clock_out ? data.clock_out.toISOString() : null,
             clock_in_location: data.clock_in_location || null,  // ✅ New field name
