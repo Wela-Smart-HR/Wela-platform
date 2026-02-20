@@ -71,8 +71,9 @@ describe('Payroll Audit & Enriched Logs', () => {
 
     test('Zero Salary Admin with profile "none" should have 0 Taxes/SSO', async () => {
         mockGetDocs
-            .mockResolvedValueOnce({ docs: [{ id: 'admin1', data: () => mockAdmin }] })
-            .mockResolvedValueOnce({ docs: [] }); // No logs
+            .mockResolvedValueOnce({ docs: [{ id: 'admin1', data: () => mockAdmin }] }) // users
+            .mockResolvedValueOnce({ docs: [] }) // legacy attendance - no logs
+            .mockResolvedValueOnce({ docs: [] }); // new attendance_logs - no logs
 
         await PayrollRepo.createCycle('company_A', { month: '2026-06', period: 'full' });
 
@@ -96,8 +97,9 @@ describe('Payroll Audit & Enriched Logs', () => {
         ];
 
         mockGetDocs
-            .mockResolvedValueOnce({ docs: [{ id: 'staff1', data: () => mockStaff }] })
-            .mockResolvedValueOnce({ docs: logs.map(l => ({ data: () => l })) });
+            .mockResolvedValueOnce({ docs: [{ id: 'staff1', data: () => mockStaff }] }) // users
+            .mockResolvedValueOnce({ docs: logs.map(l => ({ data: () => l })) }) // legacy attendance logs
+            .mockResolvedValueOnce({ docs: [] }); // new attendance_logs - empty (legacy test data uses old format)
 
         await PayrollRepo.createCycle('company_A', {
             month: '2026-06', period: 'full',
@@ -122,5 +124,39 @@ describe('Payroll Audit & Enriched Logs', () => {
         expect(day2.deduction).toBe(50); // 10 mins * 5 (mock)
         expect(day2.note).toContain('สาย 10 นาที');
         expect(day2.checkIn).toBe('08:10');
+    });
+
+    test('Should capture morning shifts that fall into previous UTC day (Timezone Edge Case)', async () => {
+        // Case: 2026-06-01 06:00 AM (Thai) = 2026-05-31 23:00:00 UTC
+        // This record usually gets filtered out if query starts exactly at 2026-06-01T00:00:00Z
+        const logs = [
+            {
+                employee_id: 'staff1',
+                clock_in: '2026-05-31T23:00:00.000Z', // 06:00 AM Thai
+                clock_out: '2026-06-01T08:00:00.000Z', // 15:00 PM Thai
+                status: 'present',
+                late_minutes: 0
+            }
+        ];
+
+        // Mock return for NEW logs query
+        mockGetDocs
+            .mockResolvedValueOnce({ docs: [{ id: 'staff1', data: () => mockStaff }] })
+            .mockResolvedValueOnce({ docs: [] }) // Legacy empty
+            .mockResolvedValueOnce({ docs: logs.map(l => ({ data: () => l })) }) // New logs found!
+            .mockResolvedValueOnce({ exists: () => true, data: () => ({}) }); // Company
+
+        const cycleId = await PayrollRepo.createCycle('company_A', {
+            month: '2026-06', period: 'full'
+        });
+
+        const payslip = mockSet.mock.calls.find(call => call[1].employeeId === 'staff1')[1];
+        const enrichedLogs = payslip.logsSnapshot;
+
+        // Expect to find record for June 1st
+        const day1 = enrichedLogs.find(l => l.date === '2026-06-01');
+        expect(day1).toBeDefined();
+        expect(day1.checkIn).toBe('06:00'); // Converted to Local Time
+        expect(day1.checkOut).toBe('15:00');
     });
 });

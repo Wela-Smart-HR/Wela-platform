@@ -214,14 +214,15 @@ export const requestsRepo = {
                             console.error('[approveRequest] Missing effectiveDate for adjustment');
                         }
 
-                        // ✅ FIX: Use +07:00 (Asia/Bangkok) instead of Z (UTC)
-                        // Input timeIn/timeOut are local Thai times (e.g. "08:30")
-                        // Appending Z would shift them by -7 hours causing wrong display
+                        // ✅ FIX: Convert local Thai time → UTC ISO string for Firestore range queries
+                        // Using new Date(localISO).toISOString() converts +07:00 → proper UTC "Z" format
+                        // Critical: Firestore string comparisons are LEXICOGRAPHIC
+                        // Records stored as "+07:00" fall OUTSIDE UTC-based query ranges in payroll.repo.js
                         const clockInISO = (effectiveDate && timeIn)
-                            ? `${effectiveDate}T${timeIn}:00+07:00`
+                            ? new Date(`${effectiveDate}T${timeIn}:00+07:00`).toISOString()
                             : null;
                         const clockOutISO = (effectiveDate && timeOut)
-                            ? `${effectiveDate}T${timeOut}:00+07:00`
+                            ? new Date(`${effectiveDate}T${timeOut}:00+07:00`).toISOString()
                             : null;
 
                         const newLogRef = doc(collection(db, 'attendance_logs'));
@@ -229,6 +230,7 @@ export const requestsRepo = {
                             employee_id: prevReq.userId,
                             company_id: prevReq.companyId,
                             status: 'adjusted',
+                            late_minutes: 0,
                             note: `Approved Ref: ${prevReq.documentNo}`,
                             updated_at: new Date().toISOString()
                         };

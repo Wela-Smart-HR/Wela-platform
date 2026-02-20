@@ -42,9 +42,11 @@ export const PayrollRepo = {
                 where('date', '<=', endDay)
             )),
             getDocs(query(collection(db, 'attendance_logs'),
-                where('company_id', '==', companyId),
-                where('clock_in', '>=', startDay + 'T00:00:00.000Z'), // Approx ISO check
-                where('clock_in', '<=', endDay + 'T23:59:59.999Z')
+                where('company_id', '==', companyId)
+                // ⚠️ NO Firestore date range here — old approved-adjustment records
+                // were stored as '2026-02-01T09:00:00+07:00' (offset format).
+                // Firestore string comparison is LEXICOGRAPHIC: '+07:00' records fall
+                // OUTSIDE any UTC 'Z'-based range. We filter client-side instead.
             )),
             getDoc(doc(db, 'companies', companyId))
         ]);
@@ -92,13 +94,19 @@ export const PayrollRepo = {
 
         // Parse Logs
         const legacyLogs = legacySnap.docs.map(d => d.data());
-        const newLogs = newLogsSnap.docs.map(d => d.data());
+        const allNewLogs = newLogsSnap.docs.map(d => d.data());
 
-        console.log("Debug CreateCycle:", {
-            empCount: employees.length,
-            legacyCount: legacyLogs.length,
-            newCount: newLogs.length
+        // Client-side date filter for attendance_logs
+        // Uses Date object comparison — works for BOTH UTC 'Z' and '+07:00' offset formats
+        const rangeStart = new Date(startDay + 'T00:00:00+07:00'); // start of day Bangkok
+        const rangeEnd = new Date(endDay + 'T23:59:59+07:00'); // end of day Bangkok
+        const newLogs = allNewLogs.filter(log => {
+            if (!log.clock_in) return false;
+            const t = new Date(log.clock_in); // Date() handles both Z and +07:00 correctly
+            return t >= rangeStart && t <= rangeEnd;
         });
+
+        console.log('Payroll createCycle:', { legacy: legacyLogs.length, new: newLogs.length, totalNew: allNewLogs.length });
 
         // 3. Batch Creation
         const batch = writeBatch(db);
@@ -120,6 +128,8 @@ export const PayrollRepo = {
 
             // 1. Process Legacy Logs (Base)
             const empLegacy = legacyLogs.filter(a => a.userId === emp.id);
+            console.log(`[Payroll][${emp.name}] legacy matched: ${empLegacy.length}/${legacyLogs.length}, new matched: ${newLogs.filter(a => a.employee_id === emp.id).length}/${newLogs.length}`);
+
             empLegacy.forEach(log => {
                 const dateKey = log.date;
                 if (!dateKey) return;
@@ -146,6 +156,30 @@ export const PayrollRepo = {
                     entry.checkOut = log.localTimestamp?.split('T')[1]?.substring(0, 5) || null;
                 }
 
+                // ✅ Handle retro-approved / retro records
+                // ⚠️ Old approval code stored clockOut as Firestore Timestamp (NOT "HH:mm" string)
+                //    Assigning Timestamp to entry.checkOut → UI displays nothing
+                if (log.type === 'retro-approved' || log.type === 'retro' || log.type === 'adjustment') {
+                    // Helper: converts Firestore Timestamp OR "HH:mm" string → "HH:mm" or null
+                    const toTimeStr = (val) => {
+                        if (!val) return null;
+                        if (typeof val === 'string') return val.substring(0, 5);
+                        const d = val.toDate ? val.toDate() : (val.seconds ? new Date(val.seconds * 1000) : null);
+                        if (!d) return null;
+                        return new Intl.DateTimeFormat('en-GB', {
+                            timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false
+                        }).format(d);
+                    };
+                    const rawIn = log.timeIn || log.clockIn || log.data?.timeIn || log.data?.clockIn;
+                    const rawOut = log.timeOut || log.clockOut || log.data?.timeOut || log.data?.clockOut;
+                    const t = toTimeStr(rawIn);
+                    const o = toTimeStr(rawOut);
+                    console.log('[Retro] date:', log.date, '→ checkIn:', t, ', checkOut:', o);
+                    if (t) entry.checkIn = t;
+                    if (o) entry.checkOut = o;
+                    entry.status = log.status || 'present';
+                }
+
                 // Accumulate from ANY doc type
                 if (log.lateMinutes) entry.lateMinutes += Number(log.lateMinutes);
                 if (log.otHours) entry.otHours += Number(log.otHours);
@@ -160,21 +194,12 @@ export const PayrollRepo = {
             empNew.forEach(log => {
                 if (!log.clock_in) return;
 
-                // clock_in is ISO string (e.g. 2026-02-06T08:31:00.000Z)
+                // clock_in can be UTC "Z" or "+07:00" offset string — Date() handles both
                 const d = new Date(log.clock_in);
-                // Convert to Local Date String YYYY-MM-DD (matches legacy key format)
-                // Use DateUtils logic? Or simple split if we assume UTC+7 consistency.
-                // Legacy key relies on 'date' field which is usually YYYY-MM-DD.
-                // To match, we should use local date.
-                // Hack: offset timezone?
-                // Simple: d.toLocaleDateString('en-CA') uses local timezone usually if environment is set?
-                // No, safely format it manually to avoid timezone issues:
-                // Assume logic runs in client timezone (Browser).
 
-                const year = d.getFullYear();
-                const month = String(d.getMonth() + 1).padStart(2, '0');
-                const day = String(d.getDate()).padStart(2, '0');
-                const dateKey = `${year}-${month}-${day}`;
+                // ✅ Always extract date in Asia/Bangkok (UTC+7) — prevents "previous day" bug
+                // e.g. UTC "2026-02-01T02:00:00Z" = Thai "2026-02-01 09:00" → dateKey "2026-02-01" ✓
+                const dateKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(d);
 
                 if (!dayMap[dateKey]) {
                     dayMap[dateKey] = {
@@ -189,16 +214,20 @@ export const PayrollRepo = {
                 }
                 const entry = dayMap[dateKey];
 
-                // Extract HH:mm
-                const hh = String(d.getHours()).padStart(2, '0');
-                const mm = String(d.getMinutes()).padStart(2, '0');
-                entry.checkIn = `${hh}:${mm}`;
+                // ✅ Extract HH:mm in Asia/Bangkok — works for both UTC 'Z' and '+07:00' formats
+                const timeStr = new Intl.DateTimeFormat('en-GB', {
+                    timeZone: 'Asia/Bangkok',
+                    hour: '2-digit', minute: '2-digit', hour12: false
+                }).format(d);
+                entry.checkIn = timeStr; // "HH:mm"
 
                 if (log.clock_out) {
                     const outD = new Date(log.clock_out);
-                    const oh = String(outD.getHours()).padStart(2, '0');
-                    const om = String(outD.getMinutes()).padStart(2, '0');
-                    entry.checkOut = `${oh}:${om}`;
+                    const outStr = new Intl.DateTimeFormat('en-GB', {
+                        timeZone: 'Asia/Bangkok',
+                        hour: '2-digit', minute: '2-digit', hour12: false
+                    }).format(outD);
+                    entry.checkOut = outStr;
                 }
 
                 // Map Fields (New -> Legacy Internal)
@@ -209,6 +238,7 @@ export const PayrollRepo = {
             });
 
             const empLogs = Object.values(dayMap); // 1 row per day merged
+            console.log(`[Payroll][${emp.name}] dayMap has ${empLogs.length} days:`, empLogs.map(l => `${l.date}: ${l.checkIn || '?'}→${l.checkOut || '?'}`));
 
             // STEP 2: Calculate totals & enrich each day
             let workDays = 0;

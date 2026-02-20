@@ -62,6 +62,8 @@ export const LogsTab = ({ logs, startDate, endDate }) => {
         }
     });
 
+    console.log('[LogsTab] incoming logs:', logs?.length, 'logMap keys:', Object.keys(logMap), 'sample:', logs?.slice(0, 3).map(l => ({ date: l.date, checkIn: l.checkIn, checkOut: l.checkOut })));
+
     // --- 2. Generate full date range (LOCAL timezone safe) ---
     const allDays = [];
     if (startDate && endDate) {
