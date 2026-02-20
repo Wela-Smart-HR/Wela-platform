@@ -14,7 +14,7 @@ describe('PayrollRepo.addPayment — Overpayment Guard', () => {
     beforeEach(() => { vi.clearAllMocks(); });
 
     test('should update status to "partial"', async () => {
-        const mockData = { netTotal: 25000, payments: [] };
+        const mockData = { financials: { net: 25000 }, payments: [] };
 
         let capturedUpdate;
         runTransaction.mockImplementation(async (_, cb) => {
@@ -33,7 +33,7 @@ describe('PayrollRepo.addPayment — Overpayment Guard', () => {
     });
 
     test('should THROW error when payment exceeds remaining', async () => {
-        const mockData = { netTotal: 20000, payments: [{ amount: 15000 }] }; // Paid 15k, Left 5k
+        const mockData = { financials: { net: 20000 }, payments: [{ amount: 15000 }] }; // Paid 15k, Left 5k
 
         runTransaction.mockImplementation(async (_, cb) => {
             await cb({

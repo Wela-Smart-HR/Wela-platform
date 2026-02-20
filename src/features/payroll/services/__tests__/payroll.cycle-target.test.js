@@ -50,7 +50,8 @@ describe('PayrollRepo.createCycle - Target Filtering (Thai)', () => {
         mockGetDoc.mockResolvedValue({ exists: () => false, data: () => ({}) });
         mockGetDocs
             .mockResolvedValueOnce({ docs: mockUsers.map(u => ({ id: u.id, data: () => u })) })
-            .mockResolvedValueOnce({ docs: [] }); // Attendance
+            .mockResolvedValueOnce({ docs: [] }) // Legacy
+            .mockResolvedValueOnce({ docs: [] }); // New
     });
 
     test('Target: daily -> Should include Daily (Eng) & Thai Daily', async () => {
@@ -71,6 +72,7 @@ describe('PayrollRepo.createCycle - Target Filtering (Thai)', () => {
     test('Target: monthly -> Should include Monthly (Eng), Default & Thai Monthly', async () => {
         mockGetDocs
             .mockResolvedValueOnce({ docs: mockUsers.map(u => ({ id: u.id, data: () => u })) })
+            .mockResolvedValueOnce({ docs: [] })
             .mockResolvedValueOnce({ docs: [] });
 
         await PayrollRepo.createCycle('company_A', { month: '2026-06', period: 'full', target: 'monthly' });

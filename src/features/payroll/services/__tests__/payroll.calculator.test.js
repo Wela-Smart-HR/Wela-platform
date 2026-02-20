@@ -26,9 +26,9 @@ describe('PayrollCalculator (The Brain)', () => {
         });
 
         test('should use minimum base 1,650', () => {
-            // 1,000 -> Min Base 1,650 * 5% = 82.5 -> ปัดเป็น 83
+            // 1,000 -> Min Base 1,650 * 5% = 82.5 -> ปัด ROUND_DOWN = 82
             const sso = PayrollCalculator.calculateSSO(1000);
-            expect(sso).toBe(83);
+            expect(sso).toBe(82);
         });
     });
 

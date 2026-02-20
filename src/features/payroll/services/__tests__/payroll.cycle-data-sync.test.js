@@ -68,7 +68,8 @@ describe('PayrollRepo.createCycle - Data Sync Options', () => {
         // Mock Users & Attendance
         mockGetDocs
             .mockResolvedValueOnce({ docs: [{ id: 'u1', data: () => mockUser }] }) // Users
-            .mockResolvedValueOnce({ docs: mockAttendance.map(a => ({ data: () => a })) }); // Attendance
+            .mockResolvedValueOnce({ docs: mockAttendance.map(a => ({ data: () => a })) }) // Legacy
+            .mockResolvedValueOnce({ docs: [] }); // New
     });
 
     test('should SYNC deduction when syncDeduct is true', async () => {

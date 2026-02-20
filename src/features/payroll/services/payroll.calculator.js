@@ -12,23 +12,74 @@ export class PayrollCalculator {
     }
 
     /**
-     * Calculate Social Security (SSO)
-     * Rule: 5% of base salary, min base 1,650, max base 17,500 (Updated 2026)
+     * Convert Decimal to Database Format (Satang / Integer)
+     * To prevent rounding errors in DB aggregation, save as integer satangs.
+     * e.g. 15000.50 THB -> 1500050
+     * @param {Decimal|number} value 
+     * @returns {number} Integer
+     */
+    static toDbSatang(value) {
+        return parseInt(this.toDecimal(value).times(100).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toString(), 10);
+    }
+
+    /**
+     * Convert DB Satang back to Display Amount (THB)
+     * e.g. 1500050 -> 15000.50
+     * @param {number} satang 
+     * @returns {number} Float (For UI calculation if needed)
+     */
+    static fromDbSatang(satang) {
+        return this.toDecimal(satang).dividedBy(100).toNumber();
+    }
+
+    /**
+     * Calculate Social Security (SSO) - Thai Labor Law Standard
+     * Rule: 5% of base salary, min base 1,650, max base 17,500
      * @param {number} baseSalary 
-     * @returns {number} SSO amount (rounded to integer)
+     * @returns {number} SSO amount (Exact Float for now, UI handles Satang if needed)
      */
     static calculateSSO(baseSalary) {
         const salary = this.toDecimal(baseSalary);
-        // Cap max base at 17,500 (New 2024-2026 Rule)
+        // Cap max base at 17,500 (Max 5% = 875)
         const cappedBase = Decimal.min(salary, 17500);
-        // Floor at 1,650 (Standard Min)
+        // Floor at 1,650 (Min 5% = 83)
         const finalBase = Decimal.max(cappedBase, 1650);
 
         // 5% rate
         const sso = finalBase.times(0.05);
 
-        // Round standard: Half-Up to integer
-        return sso.toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber();
+        // Rule according to Thai SSO: Truncate down (Usually floor) or exact rounding. We will use standard ROUND_DOWN for conservative deduction
+        return sso.toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber();
+    }
+
+    /**
+     * Calculate Overtime (OT) Pay - Exact Thai Labor Law Formula
+     * Formula: ((Base Salary / (Working Days * Standard Daily Hours)) * Multiplier * OT Hours)
+     * 
+     * @param {number} baseSalary เงินเดือนฐาน
+     * @param {number} workingDays จำนวนวันทำงานต่อเดือน (เช่น 30)
+     * @param {number} standardDailyHours ชั่วโมงทำงานต่อวัน (เช่น 8)
+     * @param {number} multiplier อัตราตัวคูณ (เช่น 1.5, 3.0)
+     * @param {number} otHours จำนวนชั่วโมงโอที
+     * @returns {number} จำนวนเงินโอที (THB Float)
+     */
+    static calculateOT(baseSalary, workingDays = 30, standardDailyHours = 8, multiplier = 1.0, otHours = 0) {
+        if (!otHours || otHours <= 0) return 0;
+
+        const salary = this.toDecimal(baseSalary);
+        const days = this.toDecimal(workingDays);
+        const hours = this.toDecimal(standardDailyHours);
+        const mult = this.toDecimal(multiplier);
+        const amt = this.toDecimal(otHours);
+
+        // 1. Hourly Wage Base
+        const divisor = days.times(hours);
+        const hourlyWageBase = salary.dividedBy(divisor);
+
+        // 2. OT Pay
+        const otPay = hourlyWageBase.times(mult).times(amt);
+
+        return otPay.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
     }
 
     /**

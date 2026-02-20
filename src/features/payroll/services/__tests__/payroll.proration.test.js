@@ -31,7 +31,8 @@ vi.mock('../payroll.calculator', () => ({
         calculateSSO: vi.fn(() => 0),
         calculateTax: vi.fn(() => 0),
         calculateNet: vi.fn(() => 0), // Simplification
-        calculateLateDeduction: vi.fn(() => 0)
+        calculateLateDeduction: vi.fn(() => 0),
+        calculateOT: vi.fn(() => 0)
     }
 }));
 
@@ -48,7 +49,8 @@ describe('Payroll Proration Logic', () => {
     test('Period: full -> Monthly should get FULL salary', async () => {
         mockGetDocs
             .mockResolvedValueOnce({ docs: [{ id: 'u1', data: () => mockMonthlyUser }] }) // Users
-            .mockResolvedValueOnce({ docs: [] }); // No attendance needed for Monthly base
+            .mockResolvedValueOnce({ docs: [] }) // Legacy Logs
+            .mockResolvedValueOnce({ docs: [] }); // New Logs
 
         await PayrollRepo.createCycle('company_A', { month: '2026-06', period: 'full' });
 
@@ -62,6 +64,7 @@ describe('Payroll Proration Logic', () => {
     test('Period: first -> Monthly should get HALF salary', async () => {
         mockGetDocs
             .mockResolvedValueOnce({ docs: [{ id: 'u1', data: () => mockMonthlyUser }] })
+            .mockResolvedValueOnce({ docs: [] })
             .mockResolvedValueOnce({ docs: [] });
 
         await PayrollRepo.createCycle('company_A', { month: '2026-06', period: 'first' });
@@ -76,6 +79,7 @@ describe('Payroll Proration Logic', () => {
     test('Period: second -> Monthly should get HALF salary', async () => {
         mockGetDocs
             .mockResolvedValueOnce({ docs: [{ id: 'u1', data: () => mockMonthlyUser }] })
+            .mockResolvedValueOnce({ docs: [] })
             .mockResolvedValueOnce({ docs: [] });
 
         await PayrollRepo.createCycle('company_A', { month: '2026-06', period: 'second' });
@@ -99,8 +103,9 @@ describe('Payroll Proration Logic', () => {
         }
 
         mockGetDocs
-            .mockResolvedValueOnce({ docs: [{ id: 'u2', data: () => mockDailyUser }] })
-            .mockResolvedValueOnce({ docs: attendanceLogs.map(l => ({ data: () => l })) });
+            .mockResolvedValueOnce({ docs: [{ id: 'u2', data: () => mockDailyUser }] }) // Users
+            .mockResolvedValueOnce({ docs: attendanceLogs.map(l => ({ data: () => l })) }) // Legacy
+            .mockResolvedValueOnce({ docs: [] }); // New
 
         await PayrollRepo.createCycle('company_A', { month: '2026-06', period: 'first' });
 

@@ -1,6 +1,12 @@
 import React from 'react';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
 
-/**
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const COMPANY_TIMEZONE = 'Asia/Bangkok';/**
  * LogsTab — Full-month attendance calendar for a payslip.
  * 
  * Merges separate clock-in / clock-out rows into ONE row per day.
@@ -67,12 +73,12 @@ export const LogsTab = ({ logs, startDate, endDate }) => {
     // --- 2. Generate full date range (LOCAL timezone safe) ---
     const allDays = [];
     if (startDate && endDate) {
-        const start = new Date(startDate + 'T00:00:00');
-        const end = new Date(endDate + 'T00:00:00');
-        for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-            // Use local date formatting to avoid UTC timezone shift
-            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            allDays.push(key);
+        let current = dayjs.tz(startDate, COMPANY_TIMEZONE).startOf('day');
+        const endDay = dayjs.tz(endDate, COMPANY_TIMEZONE).startOf('day');
+
+        while (current.isBefore(endDay) || current.isSame(endDay, 'day')) {
+            allDays.push(current.format('YYYY-MM-DD'));
+            current = current.add(1, 'day');
         }
     } else {
         // Fallback: just use log dates sorted
@@ -80,11 +86,11 @@ export const LogsTab = ({ logs, startDate, endDate }) => {
     }
 
     const fmtDay = (dateStr) => {
-        const d = new Date(dateStr + 'T00:00:00');
+        const d = dayjs.tz(dateStr, COMPANY_TIMEZONE);
         return {
-            num: d.getDate(),
-            day: d.toLocaleDateString('th-TH', { weekday: 'short' }),
-            isWeekend: d.getDay() === 0 || d.getDay() === 6
+            num: d.date(),
+            day: d.toDate().toLocaleDateString('th-TH', { weekday: 'short' }),
+            isWeekend: d.day() === 0 || d.day() === 6
         };
     };
 

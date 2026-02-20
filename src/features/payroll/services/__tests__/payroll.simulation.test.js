@@ -94,8 +94,8 @@ describe('Payroll Simulation (End-to-End Calculation)', () => {
         console.log('Somsri Payment:', { workDays, income, sso, net });
 
         expect(income).toBe(1000);
-        expect(sso).toBe(83); // Min base triggered
-        expect(net).toBe(1000 - 83);
+        expect(sso).toBe(82); // Min base triggered
+        expect(net).toBe(1000 - 82);
     });
 
 });

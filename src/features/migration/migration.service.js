@@ -1,13 +1,22 @@
 import { db } from '@/shared/lib/firebase';
-import { collection, query, where, getDocs, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, writeBatch, serverTimestamp, setDoc } from 'firebase/firestore';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const COMPANY_TIMEZONE = 'Asia/Bangkok';
 
 export const migrationService = {
     /**
-     * Backfill Daily Summaries for a specific month
-     * Reads ALL attendance records for the month (Expensive, Run ONCE)
-     * Writes to `companies/{cid}/daily_attendance/{date}`
+     * Phase 2: Idempotent Backfill from Legacy `daily_attendance` to `attendance_logs`
+     * 1. Uses Deterministic ID: {companyId}_{employeeId}_{shiftDate}
+     * 2. Cleans timezone bugs by using dayjs.tz() to bind the string time into Asia/Bangkok Time
+     * 3. Uses writeBatch in chunks of 499 max operations to avoid Firestore limits
      */
-    async syncDailyStats(companyId, selectedMonth) {
+    async runDataMigration(companyId, selectedMonth) {
         try {
             console.log("Starting Migration for:", selectedMonth);
 
@@ -18,73 +27,96 @@ export const migrationService = {
             const lastDay = new Date(year, month, 0).getDate();
             const endStr = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
 
-            // 2. Fetch ALL Attendance (using 'date' string like legacy system)
-            // This ensures we catch the exact same records the old report used to show.
+            // 2. Fetch ALL daily_attendance inside this range
             const q = query(
-                collection(db, 'attendance'),
-                where('companyId', '==', companyId),
+                collection(db, 'companies', companyId, 'daily_attendance'),
                 where('date', '>=', startStr),
                 where('date', '<=', endStr)
             );
             const snap = await getDocs(q);
-            const attendanceList = snap.docs.map(d => d.data());
 
-            // 3. Group by Date
-            const dailyMap = {}; // { "2024-02-01": { userId: { ... } } }
+            // 3. Flatten the Map into individual logs mapped by Employee & Date
+            const allLogsToMigrate = [];
 
-            attendanceList.forEach(att => {
-                if (!att.createdAt) return;
-                // Convert timestamp to YYYY-MM-DD (Local Time approximation)
-                // Note: att.createdAt is UTC. att.localTimestamp is better if available.
-                let dateKey;
-                if (att.localTimestamp) {
-                    dateKey = att.localTimestamp.split('T')[0];
-                } else if (att.date) {
-                    dateKey = att.date;
-                } else {
-                    const d = att.createdAt.toDate ? att.createdAt.toDate() : new Date(att.createdAt);
-                    dateKey = d.toISOString().split('T')[0];
-                }
+            snap.docs.forEach(d => {
+                const dateStr = d.id; // Usually the date string 'YYYY-MM-DD'
+                const data = d.data();
+                const attMap = data.attendance || {};
 
-                if (!dailyMap[dateKey]) dailyMap[dateKey] = {};
+                Object.entries(attMap).forEach(([employeeId, att]) => {
+                    // Safety check Time In
+                    if (!att.timeIn) return;
 
-                // Merge logic (Last write wins or smart merge)
-                const existing = dailyMap[dateKey][att.userId] || {};
+                    // --- [CORRECTED] Architecture Rule 3: Timezone Parsing ---
+                    const parseTimeSafely = (timeString) => {
+                        if (!timeString) return null;
 
-                if (att.type === 'clock-in') {
-                    dailyMap[dateKey][att.userId] = {
-                        ...existing,
-                        timeIn: att.localTimestamp || att.createdAt,
+                        // กรณีที่ 1: เป็น ISO String ที่มีตัว T (เช่น 2024-02-01T08:30:00.000Z)
+                        if (timeString.includes('T')) {
+                            return dayjs.tz(timeString.replace('Z', ''), COMPANY_TIMEZONE).toDate();
+                        }
+
+                        // กรณีที่ 2: เป็นแค่เวลา (เช่น "08:30" หรือ "08:30:00")
+                        if (timeString.match(/^\d{1,2}:\d{2}/)) {
+                            // เอาวันที่จาก Document ID มาประกอบร่างกับเวลา
+                            return dayjs.tz(`${dateStr} ${timeString}`, COMPANY_TIMEZONE).toDate();
+                        }
+
+                        // กรณีที่ 3: Format อื่นๆ เช่น "YYYY-MM-DD HH:mm:ss"
+                        return dayjs.tz(timeString, COMPANY_TIMEZONE).toDate();
+                    };
+
+                    const clockInDate = parseTimeSafely(att.timeIn);
+                    const clockOutDate = parseTimeSafely(att.timeOut);
+                    // ---------------------------------------------------------
+
+                    // Prepare Target Schema
+                    const newLog = {
+                        company_id: companyId,
+                        employee_id: employeeId,
+                        shift_date: dateStr,
+                        clock_in: clockInDate,
+                        clock_out: clockOutDate || null,
                         status: att.status || 'on-time',
-                        location: att.location,
-                        timestamp: att.createdAt // for sorting
+                        late_minutes: att.lateMins || att.lateMinutes || 0,
+                        clock_in_location: att.location || null,
+                        timezone: COMPANY_TIMEZONE,
+                        migrated_at: serverTimestamp(),
+                        is_migrated: true
                     };
-                } else if (att.type === 'clock-out') {
-                    dailyMap[dateKey][att.userId] = {
-                        ...existing,
-                        timeOut: att.localTimestamp || att.createdAt,
-                        status: 'completed' // if clocked out
-                    };
-                }
+
+                    allLogsToMigrate.push(newLog);
+                });
             });
 
-            // 4. Batch Write
-            const batch = writeBatch(db);
-            let count = 0;
+            if (allLogsToMigrate.length === 0) {
+                console.log("No legacy logs found to migrate.");
+                return 0;
+            }
 
-            Object.entries(dailyMap).forEach(([dateStr, attendanceMap]) => {
-                const docRef = doc(db, 'companies', companyId, 'daily_attendance', dateStr);
-                batch.set(docRef, {
-                    date: dateStr,
-                    attendance: attendanceMap,
-                    lastUpdated: serverTimestamp()
-                }, { merge: true });
-                count++;
-            });
+            // 4. Batch Write with Batch Limiting (Max 500, we use 499)
+            let totalCommitted = 0;
+            const chunkSize = 499;
+            for (let i = 0; i < allLogsToMigrate.length; i += chunkSize) {
+                const chunk = allLogsToMigrate.slice(i, i + chunkSize);
+                const batch = writeBatch(db);
 
-            await batch.commit();
-            console.log(`Migrated ${count} days.`);
-            return count;
+                chunk.forEach(log => {
+                    // Architecture Rule 2: Idempotency with Deterministic Document ID
+                    const deterministicId = `${companyId}_${log.employee_id}_${log.shift_date}`;
+                    const docRef = doc(db, 'attendance_logs', deterministicId);
+
+                    // Use setDoc in batch with merge: true to avoid creating duplicates
+                    batch.set(docRef, log, { merge: true });
+                });
+
+                await batch.commit();
+                totalCommitted += chunk.length;
+                console.log(`Committed chunk: ${chunk.length} | Total: ${totalCommitted}/${allLogsToMigrate.length}`);
+            }
+
+            console.log(`Migration Complete. Successfully migrated ${totalCommitted} records.`);
+            return totalCommitted;
 
         } catch (error) {
             console.error("Migration Error:", error);

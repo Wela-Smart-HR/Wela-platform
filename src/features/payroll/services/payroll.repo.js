@@ -102,7 +102,7 @@ export const PayrollRepo = {
         const rangeEnd = new Date(endDay + 'T23:59:59+07:00'); // end of day Bangkok
         const newLogs = allNewLogs.filter(log => {
             if (!log.clock_in) return false;
-            const t = new Date(log.clock_in); // Date() handles both Z and +07:00 correctly
+            const t = log.clock_in.toDate ? log.clock_in.toDate() : new Date(log.clock_in);
             return t >= rangeStart && t <= rangeEnd;
         });
 
@@ -194,8 +194,7 @@ export const PayrollRepo = {
             empNew.forEach(log => {
                 if (!log.clock_in) return;
 
-                // clock_in can be UTC "Z" or "+07:00" offset string — Date() handles both
-                const d = new Date(log.clock_in);
+                const d = log.clock_in.toDate ? log.clock_in.toDate() : new Date(log.clock_in);
 
                 // ✅ Always extract date in Asia/Bangkok (UTC+7) — prevents "previous day" bug
                 // e.g. UTC "2026-02-01T02:00:00Z" = Thai "2026-02-01 09:00" → dateKey "2026-02-01" ✓
@@ -222,7 +221,7 @@ export const PayrollRepo = {
                 entry.checkIn = timeStr; // "HH:mm"
 
                 if (log.clock_out) {
-                    const outD = new Date(log.clock_out);
+                    const outD = log.clock_out.toDate ? log.clock_out.toDate() : new Date(log.clock_out);
                     const outStr = new Intl.DateTimeFormat('en-GB', {
                         timeZone: 'Asia/Bangkok',
                         hour: '2-digit', minute: '2-digit', hour12: false

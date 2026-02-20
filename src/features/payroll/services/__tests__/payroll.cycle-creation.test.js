@@ -59,7 +59,8 @@ describe('PayrollRepo.createCycle', () => {
             // Mock empty employees to focus on cycle creation
             mockGetDocs
                 .mockResolvedValueOnce({ docs: [] }) // Users
-                .mockResolvedValueOnce({ docs: [] }); // Attendance
+                .mockResolvedValueOnce({ docs: [] }) // Legacy
+                .mockResolvedValueOnce({ docs: [] }); // New
 
             const cycleData = { month: '2026-02', period: 'full' };
             await PayrollRepo.createCycle('company_123', cycleData);
@@ -79,6 +80,7 @@ describe('PayrollRepo.createCycle', () => {
         test('Leap Year (2024): End date should be 29th', async () => {
             mockGetDocs
                 .mockResolvedValueOnce({ docs: [] })
+                .mockResolvedValueOnce({ docs: [] })
                 .mockResolvedValueOnce({ docs: [] });
 
             const cycleData = { month: '2024-02', period: 'full' };
@@ -96,6 +98,7 @@ describe('PayrollRepo.createCycle', () => {
         test('First Period: should set range 1-15', async () => {
             mockGetDocs
                 .mockResolvedValueOnce({ docs: [] })
+                .mockResolvedValueOnce({ docs: [] })
                 .mockResolvedValueOnce({ docs: [] });
 
             const cycleData = { month: '2026-03', period: 'first' };
@@ -112,6 +115,7 @@ describe('PayrollRepo.createCycle', () => {
 
         test('Second Period: should set range 16-End', async () => {
             mockGetDocs
+                .mockResolvedValueOnce({ docs: [] })
                 .mockResolvedValueOnce({ docs: [] })
                 .mockResolvedValueOnce({ docs: [] });
 
@@ -145,12 +149,13 @@ describe('PayrollRepo.createCycle', () => {
         beforeEach(() => {
             mockGetDoc.mockResolvedValue({ exists: () => false, data: () => ({}) });
 
-            // Mock Users Return AND Attendance Return (needs 2 calls)
+            // Mock Users Return AND Attendance Return (needs 3 calls now)
             mockGetDocs
                 .mockResolvedValueOnce({
                     docs: mockUsers.map(u => ({ id: u.id, data: () => u }))
                 })
-                .mockResolvedValueOnce({ docs: [] }); // Attendance
+                .mockResolvedValueOnce({ docs: [] }) // Legacy
+                .mockResolvedValueOnce({ docs: [] }); // New
         });
 
         test('should filter out invalid employees', async () => {

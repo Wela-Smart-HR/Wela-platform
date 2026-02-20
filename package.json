@@ -16,6 +16,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
+    "dayjs": "^1.11.19",
     "firebase": "^12.6.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.0.0",

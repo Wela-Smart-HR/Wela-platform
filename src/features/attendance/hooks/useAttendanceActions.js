@@ -39,22 +39,56 @@ export function useAttendanceActions({
 
             // คำนวณเวลาเข้างานตามกะ (Fixed Logic: No Grace Period added here)
             let scheduleTime = null;
+            let shiftDateStr = null;
+            const now = new Date(); // Physical Time
+
+            // --- ARCHITECTURE RULE: LATE NIGHT CLOCK-IN TRAP ---
+            // If clocking in at 01:00 AM, is it today's shift or yesterday's late shift?
+            // 1. Check Schedule: If scheduled for yesterday 22:00, it's yesterday's shift.
+            // 2. No Schedule: Use Cut-off Time (e.g. 05:00 AM).
+            const physicalDateStr = now.toISOString().split('T')[0];
+            const currentHour = now.getHours();
+
             if (options.scheduleData?.startTime) {
                 const [sh, sm] = options.scheduleData.startTime.split(':').map(Number);
-                scheduleTime = new Date();
-                scheduleTime.setHours(sh, sm, 0, 0);
+
+                // If schedule starts late night (e.g., 22:00) and we clock in past midnight (e.g., 01:00)
+                // We assume shiftDate is the previous day.
+                if (sh >= 18 && currentHour < 12) {
+                    const yesterday = new Date(now);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    shiftDateStr = yesterday.toISOString().split('T')[0];
+
+                    scheduleTime = new Date(yesterday);
+                    scheduleTime.setHours(sh, sm, 0, 0);
+                } else {
+                    shiftDateStr = physicalDateStr;
+                    scheduleTime = new Date(now);
+                    scheduleTime.setHours(sh, sm, 0, 0);
+                }
+            } else {
+                // No schedule: Apply 05:00 AM Cut-off rule
+                const CUTOFF_HOUR = 5;
+                if (currentHour < CUTOFF_HOUR) {
+                    const yesterday = new Date(now);
+                    yesterday.setDate(yesterday.getDate() - 1);
+                    shiftDateStr = yesterday.toISOString().split('T')[0];
+                } else {
+                    shiftDateStr = physicalDateStr;
+                }
             }
 
             const attendanceData = {
                 companyId,
                 userId,
                 actionType: 'clock-in',
+                shiftDate: shiftDateStr,
                 location: {
                     lat: location.lat,
                     lng: location.lng,
                     address: location.address
                 },
-                localTimestamp: new Date().toISOString(),
+                localTimestamp: now.toISOString(),
                 shiftStart: scheduleTime ? scheduleTime.toISOString() : null
             };
 
@@ -77,7 +111,8 @@ export function useAttendanceActions({
                 companyId,
                 attendanceData.location,
                 new Date(attendanceData.localTimestamp),
-                scheduleTime
+                scheduleTime,
+                attendanceData.shiftDate
             );
 
             if (result.isFailure) {
@@ -120,10 +155,25 @@ export function useAttendanceActions({
             }
 
             const now = new Date();
+            const currentHour = now.getHours();
+
+            // Reconstruct logical shiftDate (since clockOut must find the active clockIn)
+            // If it's physically 06:00 AM, they likely clocked in yesterday night.
+            // A more robust way offline is just trying yesterday if today fails, but
+            // for now use cutoff to find the active shift.
+            const CUTOFF_HOUR = Number(companyConfig?.cutoffHour) || 12; // Out cutoff might be wider, assume 12:00 PM
+            let shiftDateStr = now.toISOString().split('T')[0];
+            if (currentHour < CUTOFF_HOUR) {
+                const yesterday = new Date(now);
+                yesterday.setDate(yesterday.getDate() - 1);
+                shiftDateStr = yesterday.toISOString().split('T')[0];
+            }
+
             const attendanceData = {
                 companyId,
                 userId,
                 actionType: 'clock-out',
+                shiftDate: shiftDateStr,
                 location: {
                     lat: location.lat,
                     lng: location.lng,
@@ -144,7 +194,17 @@ export function useAttendanceActions({
                 };
             }
 
-            const result = await attendanceService.clockOut(userId, attendanceData.location);
+            // Note: Currently, attendanceService.clockOut doesn't accept shiftDateStr. Let's pass the date object so it limits findLatestByEmployee boundary correctly, 
+            // OR we rely on findLatestByEmployee just searching for the "latest". Actually, findLatestByEmployee now accepts dateOrShiftDate!
+            // Let's modify attendanceService.clockOut to proxy it. But wait, clockOut in Service is: async clockOut(employeeId, locationData, timestamp = DateUtils.now()) 
+            // Wait, we can just pass the physical timestamp, since Firebase Repo findLatestByEmployee uses physical `new Date()` fallback safely for legacy, 
+            // BUT for new logs it strictly matches `shift_date == timestamp formatting`. 
+            // This means we MUST pass the shiftDate string or date object that formats to it.
+            // I will update the service in a moment if needed, but for now passing `attendanceData.shiftDate` as a 4th argument?
+            // Actually, let's just pass `new Date(attendanceData.shiftDate)` to trick DateUtils.formatDate in repo safely.
+            const logicalSearchDate = new Date(attendanceData.shiftDate);
+
+            const result = await attendanceService.clockOut(userId, attendanceData.location, new Date(attendanceData.localTimestamp), logicalSearchDate);
 
             if (result.isFailure) {
                 throw new Error(result.error);

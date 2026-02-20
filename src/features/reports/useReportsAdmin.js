@@ -2,6 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { db } from '@/shared/lib/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { useMonthlyStats } from './useMonthlyStats';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+
+const COMPANY_TIMEZONE = 'Asia/Bangkok';
 
 /**
  * Hook for behavioral reports and insights (admin perspective)
@@ -101,115 +109,56 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
 
                 let dailyStats = [];
 
-                if (!dailySnap.empty) {
-                    // ✅ A. MODERN PATH
-                    const dailyMap = {};
-                    dailySnap.forEach(doc => dailyMap[doc.id] = doc.data());
+                const startOfDayDate = dayjs.tz(start, COMPANY_TIMEZONE).startOf('day').toDate();
+                const endOfDayDate = dayjs.tz(end, COMPANY_TIMEZONE).endOf('day').toDate();
 
-                    dailyStats = Array.from({ length: daysInMonth }, (_, i) => {
-                        const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i + 1);
-                        const dateStr = toISODate(d);
-                        const summary = dailyMap[dateStr];
+                const logsQ = query(
+                    collection(db, "attendance_logs"), // Use new collection
+                    where("company_id", "==", companyId),
+                    where("shift_date", ">=", start),
+                    where("shift_date", "<=", end)
+                );
+                const logsSnap = await getDocs(logsQ);
+                const logsData = logsSnap.docs.map(d => {
+                    const data = d.data();
+                    return {
+                        ...data,
+                        userId: data.employee_id,
+                        createdAt: data.clock_in ? new Date(data.clock_in) : null,
+                        clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                        status: data.status || 'on-time',
+                        lateMins: data.late_minutes || 0,
+                    };
+                });
 
-                        // Check if it's weekend (Sunday=0, Saturday=6)
-                        const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                dailyStats = Array.from({ length: daysInMonth }, (_, i) => {
+                    const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i + 1);
+                    const dateStr = toISODate(d);
 
-                        if (summary) {
-                            const values = Object.values(summary.attendance || {});
-                            const present = values.length;
-                            const late = values.filter(v => v.status === 'late').length;
-                            const onTime = Math.max(0, present - late);
-
-                            // ✅ FIX: Calculate Absent based on Schedule or "No Holiday Mode"
-                            let expected = 0;
-                            if (hasSchedules) {
-                                expected = scheduleMap[dateStr] || 0;
-                            } else {
-                                // Fallback: "No Holiday Mode" -> Everyday is workday
-                                // (Unless future date)
-                                expected = totalActiveStaff;
-                            }
-
-                            let absent = 0;
-                            if (d <= new Date()) {
-                                absent = Math.max(0, expected - present);
-                            }
-
-                            return { day: i + 1, dateFull: dateStr, onTime, late, absent };
-                        } else {
-                            // No attendance data logic
-                            let expected = 0;
-                            if (hasSchedules) {
-                                expected = scheduleMap[dateStr] || 0;
-                            } else {
-                                expected = totalActiveStaff;
-                            }
-
-                            let absent = 0;
-                            if (d <= new Date()) {
-                                absent = expected; // All absent
-                            }
-                            return { day: i + 1, dateFull: dateStr, onTime: 0, late: 0, absent: absent };
-                        }
+                    const attForDay = logsData.filter(a => {
+                        if (!a.createdAt) return false;
+                        const createdDate = toISODate(a.createdAt);
+                        return createdDate === dateStr;
                     });
 
-                } else {
-                    // ⚠️ Fallback: Legacy Query -> NOW MIGRATED TO NEW LOGS
-                    // console.warn("⚠️ Fetching raw attendance (Legacy Mode)");
+                    const present = attForDay.length;
+                    const late = attForDay.filter(a => a.status === 'late').length;
+                    const onTime = Math.max(0, present - late);
 
-                    const logsQ = query(
-                        collection(db, "attendance_logs"), // ✅ Switch to new collection
-                        where("company_id", "==", companyId), // ✅ Use company_id
-                        where("clock_in", ">=", start), // ✅ Query by ISO string
-                        where("clock_in", "<=", end)
-                    );
-                    const logsSnap = await getDocs(logsQ);
-                    const logsData = logsSnap.docs.map(d => {
-                        const data = d.data();
-                        return {
-                            ...data,
-                            // Map for Report Logic Compatibility
-                            userId: data.employee_id,
-                            createdAt: data.clock_in ? new Date(data.clock_in) : null, // Map clock_in -> createdAt (Date)
-                            clockOut: data.clock_out ? new Date(data.clock_out) : null,
-                            status: data.status || 'on-time',
-                            lateMins: data.late_minutes || 0,
-                            // Original fields
-                            date: data.clock_in ? data.clock_in.split('T')[0] : ''
-                        };
-                    });
+                    let expected = 0;
+                    if (hasSchedules) {
+                        expected = scheduleMap[dateStr] || 0;
+                    } else {
+                        expected = totalActiveStaff;
+                    }
 
-                    dailyStats = Array.from({ length: daysInMonth }, (_, i) => {
-                        const d = new Date(selectedMonth.getFullYear(), selectedMonth.getMonth(), i + 1);
-                        const dateStr = toISODate(d);
+                    let absent = 0;
+                    if (d <= new Date()) {
+                        absent = Math.max(0, expected - present);
+                    }
 
-                        // ✅ FIX: Robust Date Comparison
-                        const attForDay = logsData.filter(a => {
-                            if (!a.createdAt) return false;
-                            const createdDate = toISODate(a.createdAt);
-                            return createdDate === dateStr;
-                        });
-
-                        const present = attForDay.length;
-                        const late = attForDay.filter(a => a.status === 'late').length;
-                        const onTime = Math.max(0, present - late);
-
-                        // ✅ FIX: Calculate Absent based on Schedule or "No Holiday Mode"
-                        let expected = 0;
-                        if (hasSchedules) {
-                            expected = scheduleMap[dateStr] || 0;
-                        } else {
-                            expected = totalActiveStaff;
-                        }
-
-                        let absent = 0;
-                        if (d <= new Date()) {
-                            absent = Math.max(0, expected - present);
-                        }
-
-                        return { day: i + 1, dateFull: dateStr, onTime, late, absent };
-                    });
-                }
+                    return { day: i + 1, dateFull: dateStr, onTime, late, absent };
+                });
 
                 setGraphData(dailyStats);
 
@@ -264,9 +213,12 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
         setLoading(true);
         try {
             const { start, end } = getMonthRange(selectedMonth);
+            const startOfDayDate = dayjs.tz(start, COMPANY_TIMEZONE).startOf('day').toDate();
+            const endOfDayDate = dayjs.tz(end, COMPANY_TIMEZONE).endOf('day').toDate();
+
             const [usersSnap, attSnap, schSnap] = await Promise.all([
                 getDocs(query(collection(db, "users"), where("companyId", "==", companyId))),
-                getDocs(query(collection(db, "attendance_logs"), where("company_id", "==", companyId), where("clock_in", ">=", start), where("clock_in", "<=", end))),
+                getDocs(query(collection(db, "attendance_logs"), where("company_id", "==", companyId), where("shift_date", ">=", start), where("shift_date", "<=", end))),
                 getDocs(query(collection(db, "schedules"), where("companyId", "==", companyId), where("date", ">=", start), where("date", "<=", end)))
             ]);
 
@@ -458,51 +410,25 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                 setEmployeesCache(employees);
             }
 
-            // 2. Fetch from BOTH sources in parallel
-            const startOfDay = `${dateStr}T00:00:00`;
-            const endOfDay = `${dateStr}T23:59:59`;
+            // 2. Fetch from New Source
+            const startOfDayDate = dayjs.tz(dateStr, COMPANY_TIMEZONE).startOf('day').toDate();
+            const endOfDayDate = dayjs.tz(dateStr, COMPANY_TIMEZONE).endOf('day').toDate();
 
-            const [dailySummarySnap, logsSnap] = await Promise.all([
-                // Source A: daily_attendance (legacy zero-cost stats) — ใช้ doc ID = dateStr
-                getDocs(query(
-                    collection(db, 'companies', companyId, 'daily_attendance'),
-                    where('date', '==', dateStr)
-                )).catch(() => ({ docs: [] })),
+            const logsSnap = await getDocs(query(
+                collection(db, "attendance_logs"),
+                where("company_id", "==", companyId),
+                where("shift_date", "==", dateStr)
+            )).catch(() => ({ docs: [] }));
 
-                // Source B: attendance_logs (new domain) — range query
-                getDocs(query(
-                    collection(db, "attendance_logs"),
-                    where("company_id", "==", companyId),
-                    where("clock_in", ">=", startOfDay),
-                    where("clock_in", "<=", endOfDay)
-                )).catch(() => ({ docs: [] }))
-            ]);
-
-            // 3. Build attendanceMap from BOTH sources
+            // 3. Build attendanceMap from new source
             const attendanceMap = {};
 
-            // Source A: daily_attendance → attendance sub-map { userId: { timeIn, status, ... } }
-            dailySummarySnap.docs.forEach(d => {
-                const data = d.data();
-                const attMap = data.attendance || {};
-                Object.entries(attMap).forEach(([userId, attData]) => {
-                    attendanceMap[userId] = {
-                        userId,
-                        createdAt: attData.timeIn ? new Date(attData.timeIn) : null,
-                        clockOut: attData.timeOut ? new Date(attData.timeOut) : null,
-                        status: attData.status || 'on-time',
-                        lateMins: attData.lateMins || attData.lateMinutes || 0
-                    };
-                });
-            });
-
-            // Source B: attendance_logs (overrides daily_attendance if both exist)
             logsSnap.docs.forEach(d => {
                 const data = d.data();
                 attendanceMap[data.employee_id] = {
                     userId: data.employee_id,
-                    createdAt: data.clock_in ? new Date(data.clock_in) : null,
-                    clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                    createdAt: data.clock_in ? (data.clock_in.toDate ? data.clock_in.toDate() : new Date(data.clock_in)) : null,
+                    clockOut: data.clock_out ? (data.clock_out.toDate ? data.clock_out.toDate() : new Date(data.clock_out)) : null,
                     status: data.status || 'on-time',
                     lateMins: data.late_minutes || 0
                 };
@@ -537,14 +463,16 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
     const getEmployeeMonthlyAttendance = useCallback(async (employeeId) => {
         try {
             const { start, end } = getMonthRange(selectedMonth);
+            const startOfDayDate = dayjs.tz(start, COMPANY_TIMEZONE).startOf('day').toDate();
+            const endOfDayDate = dayjs.tz(end, COMPANY_TIMEZONE).endOf('day').toDate();
             // Fetch logs
             // Fetch logs from attendance_logs
             const q = query(
                 collection(db, "attendance_logs"),
                 where("company_id", "==", companyId),
                 where("employee_id", "==", employeeId),
-                where("clock_in", ">=", start),
-                where("clock_in", "<=", end)
+                where("shift_date", ">=", start),
+                where("shift_date", "<=", end)
             );
             const snap = await getDocs(q);
             const logs = snap.docs.map(d => {
@@ -552,9 +480,9 @@ export function useReportsAdmin(companyId, selectedMonth = new Date()) {
                 return {
                     ...data,
                     userId: data.employee_id,
-                    date: data.clock_in ? data.clock_in.split('T')[0] : '',
-                    createdAt: data.clock_in ? new Date(data.clock_in) : null,
-                    clockOut: data.clock_out ? new Date(data.clock_out) : null,
+                    date: data.shift_date || (data.clock_in ? data.clock_in.split('T')[0] : ''),
+                    createdAt: data.clock_in ? (data.clock_in.toDate ? data.clock_in.toDate() : new Date(data.clock_in)) : null,
+                    clockOut: data.clock_out ? (data.clock_out.toDate ? data.clock_out.toDate() : new Date(data.clock_out)) : null,
                     lateMins: data.late_minutes || 0,
                     status: data.status || 'on-time'
                 };

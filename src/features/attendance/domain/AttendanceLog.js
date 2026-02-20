@@ -10,6 +10,7 @@ import { Location } from './value-objects/Location.js';
  * 
  * Props:
  * - id, companyId, employeeId
+ * - shiftDate (String: YYYY-MM-DD)
  * - clockIn (Date), clockOut (Date|null)
  * - clockInLocation (Location|null), clockOutLocation (Location|null)
  * - status ('on-time'|'late'|'adjusted'), lateMinutes (number)
@@ -28,6 +29,7 @@ export class AttendanceLog {
         // 1. Guard: ตรวจข้อมูลพื้นฐาน
         const guardResult = Guard.combine([
             Guard.againstNullOrUndefined(props.employeeId, 'Employee ID'),
+            Guard.againstNullOrUndefined(props.shiftDate, 'Shift Date'),
             Guard.againstNullOrUndefined(props.clockIn, 'Clock In Time')
         ]);
 
@@ -100,6 +102,7 @@ export class AttendanceLog {
     get id() { return this.props.id; }
     get companyId() { return this.props.companyId; }
     get employeeId() { return this.props.employeeId; }
+    get shiftDate() { return this.props.shiftDate; }
     get clockIn() { return this.props.clockIn; }
     get clockOut() { return this.props.clockOut; }
     get clockInLocation() { return this.props.clockInLocation; }
@@ -116,6 +119,7 @@ export class AttendanceLog {
             id: this.props.id,
             company_id: this.props.companyId,
             employee_id: this.props.employeeId,
+            shift_date: this.props.shiftDate,
             clock_in: this.props.clockIn,
             clock_out: this.props.clockOut || null,
             clock_in_location: this.props.clockInLocation?.toPrimitives() || null,

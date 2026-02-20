@@ -53,6 +53,7 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
             id: docId,
             companyId: data.company_id,
             employeeId: data.employee_id,
+            shiftDate: data.shift_date,  // ✅ New field
             clockIn: data.clock_in ? new Date(data.clock_in) : null,
             clockOut: data.clock_out ? new Date(data.clock_out) : null,
             clockInLocation: clockInLocRaw ? Location.fromPersistence(clockInLocRaw) : null,
@@ -86,17 +87,21 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
         return this.toDomain(docSnap.id, docSnap.data());
     }
 
-    async findLatestByEmployee(employeeId, date) {
-        const startOfDay = DateUtils.getBusinessDate(date);
-        const endOfDay = new Date(startOfDay);
-        endOfDay.setHours(startOfDay.getHours() + 24);
+    /**
+     * Find latest by Date or shiftDate String
+     * @param {string} employeeId 
+     * @param {Date|string} dateOrShiftDate 
+     */
+    async findLatestByEmployee(employeeId, dateOrShiftDate) {
+        let shiftDateStr = typeof dateOrShiftDate === 'string'
+            ? dateOrShiftDate
+            : DateUtils.formatDate(dateOrShiftDate);
 
-        // 1. Try finding in NEW collection
+        // 1. Try finding in NEW collection by shift_date
         const q = query(
             collection(db, this.collectionName),
             where("employee_id", "==", employeeId),
-            where("clock_in", ">=", startOfDay.toISOString()),
-            where("clock_in", "<", endOfDay.toISOString()),
+            where("shift_date", "==", shiftDateStr),
             orderBy("clock_in", "desc"),
             limit(1)
         );
@@ -108,9 +113,14 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
         }
 
         // 2. FALLBACK: Try finding in LEGACY collection ('attendance')
-        console.warn(`[Repo] New log not found for ${employeeId} on ${date.toDateString()}. Checking legacy 'attendance'...`);
+        console.warn(`[Repo] New log not found for ${employeeId} on ${shiftDateStr}. Checking legacy 'attendance'...`);
 
         try {
+            // Legacy uses Physical Timestamp bounds (midnight to midnight)
+            const dateObj = typeof dateOrShiftDate === 'string' ? new Date(dateOrShiftDate) : dateOrShiftDate;
+            const startOfDay = DateUtils.getBusinessDate(dateObj);
+            const endOfDay = new Date(startOfDay);
+            endOfDay.setHours(startOfDay.getHours() + 24);
             const legacyQ = query(
                 collection(db, 'attendance'),
                 where("userId", "==", employeeId),
