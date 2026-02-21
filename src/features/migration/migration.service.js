@@ -27,9 +27,11 @@ export const migrationService = {
             const lastDay = new Date(year, month, 0).getDate();
             const endStr = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
 
-            // 2. Fetch ALL daily_attendance inside this range
+            // 2. Fetch ALL attendance logs from LEGACY collection (not daily_attendance)
+            // ⚠️ CRITICAL FIX: Use 'attendance' collection where legacy data actually exists
             const q = query(
-                collection(db, 'companies', companyId, 'daily_attendance'),
+                collection(db, 'attendance'),
+                where('companyId', '==', companyId),
                 where('date', '>=', startStr),
                 where('date', '<=', endStr)
             );
@@ -39,54 +41,71 @@ export const migrationService = {
             const allLogsToMigrate = [];
 
             snap.docs.forEach(d => {
-                const dateStr = d.id; // Usually the date string 'YYYY-MM-DD'
                 const data = d.data();
-                const attMap = data.attendance || {};
-
-                Object.entries(attMap).forEach(([employeeId, att]) => {
-                    // Safety check Time In
-                    if (!att.timeIn) return;
-
-                    // --- [CORRECTED] Architecture Rule 3: Timezone Parsing ---
-                    const parseTimeSafely = (timeString) => {
-                        if (!timeString) return null;
-
-                        // กรณีที่ 1: เป็น ISO String ที่มีตัว T (เช่น 2024-02-01T08:30:00.000Z)
-                        if (timeString.includes('T')) {
-                            return dayjs.tz(timeString.replace('Z', ''), COMPANY_TIMEZONE).toDate();
-                        }
-
-                        // กรณีที่ 2: เป็นแค่เวลา (เช่น "08:30" หรือ "08:30:00")
-                        if (timeString.match(/^\d{1,2}:\d{2}/)) {
-                            // เอาวันที่จาก Document ID มาประกอบร่างกับเวลา
-                            return dayjs.tz(`${dateStr} ${timeString}`, COMPANY_TIMEZONE).toDate();
-                        }
-
-                        // กรณีที่ 3: Format อื่นๆ เช่น "YYYY-MM-DD HH:mm:ss"
-                        return dayjs.tz(timeString, COMPANY_TIMEZONE).toDate();
-                    };
-
-                    const clockInDate = parseTimeSafely(att.timeIn);
-                    const clockOutDate = parseTimeSafely(att.timeOut);
-                    // ---------------------------------------------------------
-
-                    // Prepare Target Schema
-                    const newLog = {
+                const dateStr = data.date; // Legacy uses date field, not document ID
+                
+                // Legacy attendance collection stores individual clock-in/out records
+                // Each document is either a clock-in or clock-out event
+                if (!dateStr || !data.userId) return;
+                
+                // Group by employee and date for processing
+                const employeeId = data.userId;
+                const logKey = `${employeeId}_${dateStr}`;
+                
+                let existingLog = allLogsToMigrate.find(log => log.logKey === logKey);
+                
+                if (!existingLog) {
+                    existingLog = {
+                        logKey,
                         company_id: companyId,
                         employee_id: employeeId,
                         shift_date: dateStr,
-                        clock_in: clockInDate,
-                        clock_out: clockOutDate || null,
-                        status: att.status || 'on-time',
-                        late_minutes: att.lateMins || att.lateMinutes || 0,
-                        clock_in_location: att.location || null,
+                        clock_in: null,
+                        clock_out: null,
+                        status: 'present',
+                        late_minutes: 0,
+                        clock_in_location: null,
                         timezone: COMPANY_TIMEZONE,
                         migrated_at: serverTimestamp(),
                         is_migrated: true
                     };
+                    allLogsToMigrate.push(existingLog);
+                }
+                
+                // Process time based on type
+                const timeString = data.localTimestamp || data.time || data.createdAt;
+                if (!timeString) return;
+                
+                const parseTimeSafely = (timeString) => {
+                    if (!timeString) return null;
 
-                    allLogsToMigrate.push(newLog);
-                });
+                    // กรณีที่ 1: เป็น ISO String ที่มีตัว T (เช่น 2024-02-01T08:30:00.000Z)
+                    if (timeString.includes('T')) {
+                        return dayjs.tz(timeString.replace('Z', ''), COMPANY_TIMEZONE).toDate();
+                    }
+
+                    // กรณีที่ 2: เป็นแค่เวลา (เช่น "08:30" หรือ "08:30:00")
+                    if (timeString.match(/^\d{1,2}:\d{2}/)) {
+                        // เอาวันที่จาก dateStr มาประกอบร่างกับเวลา
+                        return dayjs.tz(`${dateStr} ${timeString}`, COMPANY_TIMEZONE).toDate();
+                    }
+
+                    // กรณีที่ 3: Format อื่นๆ เช่น "YYYY-MM-DD HH:mm:ss"
+                    return dayjs.tz(timeString, COMPANY_TIMEZONE).toDate();
+                };
+                
+                const parsedTime = parseTimeSafely(timeString);
+                if (!parsedTime) return;
+                
+                // Assign clock-in or clock-out based on type
+                if (data.type === 'clock-in' || data.actionType === 'clock-in') {
+                    existingLog.clock_in = parsedTime;
+                    existingLog.clock_in_location = data.location || null;
+                    existingLog.status = data.status || 'present';
+                    existingLog.late_minutes = data.lateMinutes || data.lateMins || 0;
+                } else if (data.type === 'clock-out' || data.actionType === 'clock-out') {
+                    existingLog.clock_out = parsedTime;
+                }
             });
 
             if (allLogsToMigrate.length === 0) {

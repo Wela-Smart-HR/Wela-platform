@@ -287,6 +287,124 @@ export const usePayrollSystem = () => {
         }
     };
 
+    // --- Rebuild Cycle (Safe Rebuild with Lock Check) ---
+    const handleRebuildCycle = async () => {
+        if (!activeCycle) return;
+
+        const result = await Swal.fire({
+            title: 'Rebuild Payroll Cycle?',
+            html: `<div class="text-sm text-left space-y-2">
+                <p>• This will <strong>delete all current payslips</strong> and recreate them</p>
+                <p>• Attendance data will be reprocessed from scratch</p>
+                <p>• <strong class="text-red-600">Cannot be undone</strong></p>
+                <p class="text-xs text-gray-500">Cycle: ${activeCycle.title || activeCycle.id}</p>
+            </div>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#dc2626',
+            cancelButtonColor: '#6b7280',
+            confirmButtonText: 'Rebuild Cycle',
+            cancelButtonText: 'Cancel',
+            customClass: {
+                popup: 'rounded-2xl',
+                confirmButton: 'rounded-xl px-6 py-2.5',
+                cancelButton: 'rounded-xl px-6 py-2.5'
+            }
+        });
+
+        if (!result.isConfirmed) return;
+
+        try {
+            setIsLoading(true);
+            
+            // Call the safe rebuild function
+            await PayrollRepo.rebuildCycle(activeCycle.id);
+            
+            // Refresh the cycle data
+            await handleSelectCycle(activeCycle);
+            
+            Swal.fire({
+                icon: 'success',
+                title: 'Cycle Rebuilt Successfully!',
+                html: `<div class="text-sm">
+                    <p>All payslips have been recreated with fresh attendance data.</p>
+                    <p class="text-xs text-gray-500 mt-2">Please review the data before processing payments.</p>
+                </div>`,
+                confirmButtonColor: '#2563EB',
+                customClass: { popup: 'rounded-2xl' }
+            });
+        } catch (error) {
+            console.error('Rebuild Cycle Error:', error);
+            Swal.fire({
+                icon: 'error',
+                title: 'Rebuild Failed',
+                html: `<div class="text-sm">
+                    <p>${error.message}</p>
+                    <p class="text-xs text-gray-500 mt-2">Please contact support if this persists.</p>
+                </div>`,
+                confirmButtonColor: '#dc2626'
+            });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    // --- Validate Cycle Data ---
+    const handleValidateCycle = async () => {
+        if (!activeCycle) return;
+
+        try {
+            setIsLoading(true);
+            const validation = await PayrollRepo.validateCycleData(activeCycle.id);
+            
+            if (validation.isValid) {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Data Validation Passed!',
+                    html: `<div class="text-sm">
+                        <p>All ${validation.totalEmployees} employees have complete attendance data.</p>
+                        <p class="text-xs text-gray-500 mt-2">Expected: ${validation.summary.totalExpectedDays} days per employee</p>
+                    </div>`,
+                    confirmButtonColor: '#16a34a'
+                });
+            } else {
+                const issueSummary = validation.issues.slice(0, 3).map(issue => 
+                    `<li>${issue.employee}: ${issue.missingDays.length} missing days (${issue.completionRate})</li>`
+                ).join('');
+                
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Data Validation Issues Found',
+                    html: `<div class="text-sm text-left">
+                        <p><strong>${validation.issuesCount}</strong> employees have incomplete data:</p>
+                        <ul class="mt-2 space-y-1">${issueSummary}</ul>
+                        ${validation.issues.length > 3 ? `<p class="text-xs text-gray-500 mt-2">... and ${validation.issues.length - 3} more</p>` : ''}
+                        <p class="text-xs text-gray-500 mt-3">Consider rebuilding this cycle to fix missing data.</p>
+                    </div>`,
+                    confirmButtonColor: '#f59e0b',
+                    showCancelButton: true,
+                    confirmButtonText: 'Rebuild Cycle',
+                    cancelButtonText: 'Close',
+                    customClass: { popup: 'rounded-2xl' }
+                }).then((result) => {
+                    if (result.isConfirmed) {
+                        handleRebuildCycle();
+                    }
+                });
+            }
+        } catch (error) {
+            console.error('Validation Error:', error);
+            Swal.fire({
+                icon: 'error',
+                title: 'Validation Failed',
+                text: error.message,
+                confirmButtonColor: '#dc2626'
+            });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     // --- 5. Computed Stats (Dashboard + Cycle Detail) ---
     const stats = useMemo(() => {
         // Stats for the employee list view (active cycle)
@@ -332,6 +450,10 @@ export const usePayrollSystem = () => {
         handleConfirmPayment,
         handleRemovePayment,
         setActiveEmp,
+
+        // New: Rebuild & Validation
+        handleRebuildCycle,
+        handleValidateCycle,
 
         // Navigation
         goBack: () => setView('cycles')

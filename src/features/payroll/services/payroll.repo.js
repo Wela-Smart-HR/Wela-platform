@@ -4,6 +4,16 @@ import {
     query, where, orderBy, runTransaction, serverTimestamp, writeBatch
 } from 'firebase/firestore';
 import { PayrollCalculator } from './payroll.calculator';
+import dayjs from 'dayjs';
+import utc from 'dayjs/plugin/utc';
+import timezone from 'dayjs/plugin/timezone';
+import isBetween from 'dayjs/plugin/isBetween';
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.extend(isBetween);
+
+const COMPANY_TIMEZONE = 'Asia/Bangkok';
 
 export const PayrollRepo = {
 
@@ -97,16 +107,42 @@ export const PayrollRepo = {
         const allNewLogs = newLogsSnap.docs.map(d => d.data());
 
         // Client-side date filter for attendance_logs
-        // Uses Date object comparison — works for BOTH UTC 'Z' and '+07:00' offset formats
-        const rangeStart = new Date(startDay + 'T00:00:00+07:00'); // start of day Bangkok
-        const rangeEnd = new Date(endDay + 'T23:59:59+07:00'); // end of day Bangkok
+        // ✅ BULLETPROOF: Use dayjs core functions instead of String manipulation
+        // แปลง startDay (เช่น "2026-02-01") เป็นจุดเริ่มต้นของวันนั้นในเวลาประเทศไทย
+        const rangeStart = dayjs.tz(startDay, COMPANY_TIMEZONE).startOf('day');
+        // แปลง endDay (เช่น "2026-02-15") เป็นจุดสิ้นสุดของวันนั้นในเวลาประเทศไทย
+        const rangeEnd = dayjs.tz(endDay, COMPANY_TIMEZONE).endOf('day');
+        
         const newLogs = allNewLogs.filter(log => {
             if (!log.clock_in) return false;
-            const t = log.clock_in.toDate ? log.clock_in.toDate() : new Date(log.clock_in);
-            return t >= rangeStart && t <= rangeEnd;
+            
+            // 1. Normalize ข้อมูลให้เป็น dayjs object (รองรับทั้ง Timestamp และ String)
+            let clockInDayjs;
+            if (log.clock_in.toDate) {
+                clockInDayjs = dayjs(log.clock_in.toDate()); // Firestore Timestamp
+            } else {
+                clockInDayjs = dayjs(log.clock_in); // String format
+            }
+
+            if (!clockInDayjs.isValid()) return false;
+
+            // 2. เปรียบเทียบเวลาโดยใช้ .isBetween() อย่างปลอดภัย
+            // '[]' หมายถึง inclusive (นับรวมขอบเขตหัวท้ายด้วย)
+            return clockInDayjs.isBetween(rangeStart, rangeEnd, 'millisecond', '[]'); 
         });
 
-        console.log('Payroll createCycle:', { legacy: legacyLogs.length, new: newLogs.length, totalNew: allNewLogs.length });
+        console.log('Payroll createCycle:', { 
+            legacy: legacyLogs.length, 
+            new: newLogs.length, 
+            totalNew: allNewLogs.length,
+            dateRange: { startDay, endDay },
+            timezoneInfo: { companyTimezone: COMPANY_TIMEZONE, rangeStart: rangeStart.format(), rangeEnd: rangeEnd.format() },
+            sampleNewLogDates: allNewLogs.slice(0, 5).map(l => ({
+                clockIn: l.clock_in,
+                formatted: l.clock_in?.toDate ? l.clock_in.toDate().toISOString() : l.clock_in,
+                isValid: l.clock_in ? (dayjs(l.clock_in.toDate ? l.clock_in.toDate() : l.clock_in).isValid()) : false
+            }))
+        });
 
         // 3. Batch Creation
         const batch = writeBatch(db);
@@ -544,6 +580,121 @@ export const PayrollRepo = {
         // Ideally should lock all payslips too, but usually UI restriction is enough for non-critical
         await batch.commit();
     },
+    /**
+     * Rebuild a Payroll Cycle (Safe Rebuild with Lock Check)
+     * ป้องกันการ rebuild cycle ที่จ่ายเงินไปแล้ว
+     * @param {string} cycleId 
+     */
+    async rebuildCycle(cycleId) {
+        // 1. Check if cycle is locked (already paid)
+        const cycleRef = doc(db, 'payroll_cycles', cycleId);
+        const cycleSnap = await getDoc(cycleRef);
+        
+        if (!cycleSnap.exists()) {
+            throw new Error('Cycle not found');
+        }
+        
+        const cycleData = cycleSnap.data();
+        
+        // 🚨 CRITICAL: Prevent rebuild if cycle is locked or paid
+        if (cycleData.status === 'locked') {
+            throw new Error('Cannot rebuild locked cycle - payments have been processed');
+        }
+        
+        // 2. Get all payslips for this cycle to delete them
+        const payslipsQ = query(collection(db, 'payslips'), where('cycleId', '==', cycleId));
+        const payslipsSnap = await getDocs(payslipsQ);
+        
+        // 3. Delete all existing payslips
+        const batch = writeBatch(db);
+        payslipsSnap.forEach(doc => {
+            batch.delete(doc.ref);
+        });
+        await batch.commit();
+        
+        console.log(`Deleted ${payslipsSnap.size} existing payslips for rebuild`);
+        
+        // 4. Recreate cycle with same parameters
+        const [year, month] = cycleData.month.split('-').map(Number);
+        const cycleParams = {
+            month: cycleData.month,
+            period: cycleData.period,
+            target: cycleData.target || 'all'
+        };
+        
+        // 5. Call createCycle with same parameters
+        return await this.createCycle(cycleData.companyId, cycleParams);
+    },
+
+    /**
+     * Validate Payroll Data Integrity
+     * ตรวจสอบความสมบูรณ์ของข้อมูลใน cycle
+     */
+    async validateCycleData(cycleId) {
+        const cycleRef = doc(db, 'payroll_cycles', cycleId);
+        const cycleSnap = await getDoc(cycleRef);
+        const cycleData = cycleSnap.data();
+        
+        const payslipsQ = query(collection(db, 'payslips'), where('cycleId', '==', cycleId));
+        const payslipsSnap = await getDocs(payslipsQ);
+        
+        const issues = [];
+        const expectedDays = this._getExpectedDays(cycleData.startDate, cycleData.endDate);
+        
+        payslipsSnap.forEach(payslipDoc => {
+            const payslip = payslipDoc.data();
+            const logs = payslip.logsSnapshot || [];
+            
+            // ตรวจสอบว่ามีข้อมูลทุกวันในช่วงเวลา
+            const actualDays = logs.map(l => l.date);
+            const missingDays = expectedDays.filter(day => !actualDays.includes(day));
+            
+            if (missingDays.length > 0) {
+                issues.push({
+                    employee: payslip.employeeSnapshot?.name,
+                    employeeId: payslip.employeeId,
+                    missingDays,
+                    totalExpected: expectedDays.length,
+                    totalActual: actualDays.length,
+                    completionRate: ((actualDays.length / expectedDays.length) * 100).toFixed(1) + '%'
+                });
+            }
+        });
+        
+        return {
+            isValid: issues.length === 0,
+            totalEmployees: payslipsSnap.size,
+            issuesCount: issues.length,
+            issues,
+            summary: {
+                totalExpectedDays: expectedDays.length,
+                cycleInfo: {
+                    id: cycleId,
+                    startDate: cycleData.startDate,
+                    endDate: cycleData.endDate,
+                    status: cycleData.status
+                }
+            }
+        };
+    },
+
+    /**
+     * Helper: Get expected days in date range
+     */
+    _getExpectedDays(startDate, endDate) {
+        const days = [];
+        const start = dayjs(startDate);
+        const end = dayjs(endDate);
+        
+        let current = start;
+        while (current.isBefore(end) || current.isSame(end, 'day')) {
+            days.push(current.format('YYYY-MM-DD'));
+            current = current.add(1, 'day');
+        }
+        
+        return days;
+    },
+
     async getStaffCount(companyId) {
         const q = query(
             collection(db, 'users'),
