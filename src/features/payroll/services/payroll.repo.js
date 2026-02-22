@@ -15,6 +15,42 @@ dayjs.extend(isBetween);
 
 const COMPANY_TIMEZONE = 'Asia/Bangkok';
 
+/**
+ * คำนวณเวลา OT จริงๆ โดยตรวจสอบเวลาออกงานจริง
+ * @param {string} checkIn - เวลาเข้างาน (HH:mm)
+ * @param {string} checkOut - เวลาออกงาน (HH:mm) 
+ * @param {string} shiftEnd - เวลาออกกะ (HH:mm)
+ * @param {number} scheduledOTHours - ชั่วโมง OT ที่กำหนดใน schedule
+ * @returns {number} ชั่วโมง OT ที่คำนวณได้จริง
+ */
+function calculateActualOTHours(checkIn, checkOut, shiftEnd, scheduledOTHours) {
+    if (!checkIn || !checkOut || !shiftEnd || scheduledOTHours <= 0) {
+        return 0;
+    }
+
+    // แปลงเวลาเป็นนาที
+    const toMinutes = (timeStr) => {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours * 60 + minutes;
+    };
+
+    const checkInMinutes = toMinutes(checkIn);
+    const checkOutMinutes = toMinutes(checkOut);
+    const shiftEndMinutes = toMinutes(shiftEnd);
+
+    // ตรวจสอบว่าออกงานเลยเวลาออกกะหรือไม่
+    if (checkOutMinutes <= shiftEndMinutes) {
+        return 0; // ไม่มี OT จริง
+    }
+
+    // คำนวณเวลา OT จริง (นาที)
+    const actualOTMinutes = checkOutMinutes - shiftEndMinutes;
+    const actualOTHours = actualOTMinutes / 60;
+
+    // จำกัดไม่ให้เกินเวลา OT ที่กำหนดใน schedule
+    return Math.min(actualOTHours, scheduledOTHours);
+}
+
 export const PayrollRepo = {
 
     /**
@@ -43,8 +79,8 @@ export const PayrollRepo = {
         // 2. Fetch Data (Parallel)
         console.log("Fetching data for cycle:", { companyId, startDay, endDay });
 
-        // Fix: Query BOTH Legacy ('attendance') AND New ('attendance_logs') collections
-        const [usersSnap, legacySnap, newLogsSnap, companySnap] = await Promise.all([
+        // Fix: Query BOTH Legacy ('attendance'), New ('attendance_logs'), AND Schedules collections
+        const [usersSnap, legacySnap, newLogsSnap, schedulesSnap, companySnap] = await Promise.all([
             getDocs(query(collection(db, 'users'), where('companyId', '==', companyId))),
             getDocs(query(collection(db, 'attendance'),
                 where('companyId', '==', companyId),
@@ -57,6 +93,11 @@ export const PayrollRepo = {
                 // were stored as '2026-02-01T09:00:00+07:00' (offset format).
                 // Firestore string comparison is LEXICOGRAPHIC: '+07:00' records fall
                 // OUTSIDE any UTC 'Z'-based range. We filter client-side instead.
+            )),
+            getDocs(query(collection(db, 'schedules'),
+                where('companyId', '==', companyId),
+                where('date', '>=', startDay),
+                where('date', '<=', endDay)
             )),
             getDoc(doc(db, 'companies', companyId))
         ]);
@@ -105,6 +146,7 @@ export const PayrollRepo = {
         // Parse Logs
         const legacyLogs = legacySnap.docs.map(d => d.data());
         const allNewLogs = newLogsSnap.docs.map(d => d.data());
+        const schedulesData = schedulesSnap.docs.map(d => d.data());
 
         // Client-side date filter for attendance_logs
         // ✅ BULLETPROOF: Use dayjs core functions instead of String manipulation
@@ -134,6 +176,7 @@ export const PayrollRepo = {
         console.log('Payroll createCycle:', {
             legacy: legacyLogs.length,
             new: newLogs.length,
+            schedules: schedulesData.length,
             totalNew: allNewLogs.length,
             dateRange: { startDay, endDay },
             timezoneInfo: { companyTimezone: COMPANY_TIMEZONE, rangeStart: rangeStart.format(), rangeEnd: rangeEnd.format() },
@@ -141,6 +184,13 @@ export const PayrollRepo = {
                 clockIn: l.clock_in,
                 formatted: l.clock_in?.toDate ? l.clock_in.toDate().toISOString() : l.clock_in,
                 isValid: l.clock_in ? (dayjs(l.clock_in.toDate ? l.clock_in.toDate() : l.clock_in).isValid()) : false
+            })),
+            sampleSchedules: schedulesData.slice(0, 3).map(s => ({
+                date: s.date,
+                userId: s.userId,
+                otType: s.otType,
+                otHours: s.otHours,
+                incentive: s.incentive
             }))
         });
 
@@ -164,7 +214,8 @@ export const PayrollRepo = {
 
             // 1. Process Legacy Logs (Base)
             const empLegacy = legacyLogs.filter(a => a.userId === emp.id);
-            console.log(`[Payroll][${emp.name}] legacy matched: ${empLegacy.length}/${legacyLogs.length}, new matched: ${newLogs.filter(a => a.employee_id === emp.id).length}/${newLogs.length}`);
+            const empSchedules = schedulesData.filter(s => s.userId === emp.id);
+            console.log(`[Payroll][${emp.name}] legacy matched: ${empLegacy.length}/${legacyLogs.length}, new matched: ${newLogs.filter(a => a.employee_id === emp.id).length}/${newLogs.length}, schedules matched: ${empSchedules.length}/${schedulesData.length}`);
 
             empLegacy.forEach(log => {
                 const dateKey = log.date;
@@ -272,12 +323,53 @@ export const PayrollRepo = {
                 // entry.otHours = Number(log.ot_hours || 0);
             });
 
+            // 3. Process Schedules (Overlay - Priority over attendance)
+            // ข้อมูลจาก Schedule มีความสำคัญสูงสุดสำหรับ OT และ Incentive
+            empSchedules.forEach(schedule => {
+                if (!schedule.date) return;
+
+                const dateKey = schedule.date;
+
+                if (!dayMap[dateKey]) {
+                    dayMap[dateKey] = {
+                        date: dateKey,
+                        userId: emp.id,
+                        checkIn: null,
+                        checkOut: null,
+                        status: schedule.type || 'present',
+                        lateMinutes: 0,
+                        otHours: 0
+                    };
+                }
+                const entry = dayMap[dateKey];
+
+                // อัปเดตข้อมูลจาก Schedule (มีความสำคัญสูงกว่า attendance)
+                if (schedule.type === 'work') {
+                    // เก็บเวลาเข้า-ออกจาก schedule ไว้เป็น shift times
+                    entry.scheduleStartTime = schedule.startTime || null;
+                    entry.scheduleEndTime = schedule.endTime || null;
+                } else if (schedule.type === 'leave') {
+                    entry.status = 'leave';
+                } else if (schedule.type === 'off') {
+                    entry.status = 'off';
+                }
+
+                // บันทึกข้อมูล OT และ Incentive จาก Schedule
+                entry.scheduleOT = {
+                    hasOT: schedule.otType ? true : false,
+                    otType: schedule.otType || null,
+                    otHours: Number(schedule.otHours) || 0
+                };
+                entry.scheduleIncentive = Number(schedule.incentive) || 0;
+            });
+
             const empLogs = Object.values(dayMap); // 1 row per day merged
             console.log(`[Payroll][${emp.name}] dayMap has ${empLogs.length} days:`, empLogs.map(l => `${l.date}: ${l.checkIn || '?'}→${l.checkOut || '?'}`));
 
             // STEP 2: Calculate totals & enrich each day
             let workDays = 0;
             let totalOtHours = 0;
+            let totalIncentive = 0;
             let totalLateMinutes = 0;
             let totalDeductionAmount = 0;
 
@@ -299,14 +391,41 @@ export const PayrollRepo = {
                     logIncome += dailyRate;
                 }
 
-                // 2. OT Income
-                if (cycleData.syncOT && log.otHours > 0) {
-                    const otAmt = log.otHours * hourlyRate * 1.5;
-                    logIncome += otAmt;
-                    logNotes.push(`OT ${log.otHours}h`);
+                // 2. OT Income (จาก schedules - ตรวจสอบกับเวลาเข้า-ออกจริง)
+                if (log.scheduleOT && log.scheduleOT.hasOT && log.scheduleOT.otHours > 0) {
+                    // ใช้เวลาเข้า-ออกจริงจาก attendance มาตรวจสอบ OT
+                    // shiftEnd คือเวลาออกกะมาตรฐาน (จาก schedule)
+                    const shiftEnd = log.scheduleEndTime; // เวลาออกกะมาตรฐานจาก schedule
+                    
+                    // คำนวณเวลา OT จริงๆ โดยตรวจสอบเวลาออกงานจริง
+                    const actualOTHours = calculateActualOTHours(
+                        log.checkIn,      // เวลาเข้าจริงจาก attendance
+                        log.checkOut,     // เวลาออกจริงจาก attendance  
+                        shiftEnd,        // เวลาออกกะมาตรฐานจาก schedule
+                        log.scheduleOT.otHours  // OT ที่กำหนดใน schedule
+                    );
+                    
+                    if (actualOTHours > 0) {
+                        // หา OT type จาก company config
+                        const otType = companyConfig.otTypes?.find(ot => ot.id === log.scheduleOT.otType);
+                        const multiplier = otType?.rate || 1.5;
+                        const otAmt = actualOTHours * hourlyRate * multiplier;
+                        logIncome += otAmt;
+                        logNotes.push(`OT ${actualOTHours.toFixed(1)}h (x${multiplier}, กำหนด ${log.scheduleOT.otHours}h)`);
+                        totalOtHours += actualOTHours;
+                    } else {
+                        logNotes.push(`OT 0h (ออกงานไม่เกินเวลา, กำหนด ${log.scheduleOT.otHours}h)`);
+                    }
                 }
 
-                // 3. Late Deduction
+                // 3. Incentive Income (จาก schedules)
+                if (log.scheduleIncentive && log.scheduleIncentive > 0) {
+                    logIncome += log.scheduleIncentive;
+                    logNotes.push(`เบี้ยขยัน ${log.scheduleIncentive}`);
+                    totalIncentive += log.scheduleIncentive;
+                }
+
+                // 4. Late Deduction
                 if (cycleData.syncDeduct && log.lateMinutes > 0) {
                     const fine = PayrollCalculator.calculateLateDeduction(log.lateMinutes, deductionConfig);
                     logDeduction += fine;
@@ -318,7 +437,26 @@ export const PayrollRepo = {
                     ...log,
                     income: logIncome > 0 ? logIncome : 0,
                     deduction: logDeduction > 0 ? logDeduction : 0,
-                    note: logNotes.join(', ')
+                    note: logNotes.join(', '),
+                    // เพิ่มรายละเอียดสำหรับการแสดงผลใน payroll logs
+                    incomeBreakdown: {
+                        dailyWage: (salaryType === 'daily' && log.status !== 'absent' && log.checkIn) ? dailyRate : 0,
+                        ot: (log.scheduleOT && log.scheduleOT.hasOT && log.scheduleOT.otHours > 0) ? {
+                            scheduled: log.scheduleOT.otHours,
+                            actual: calculateActualOTHours(log.checkIn, log.checkOut, log.scheduleEndTime, log.scheduleOT.otHours),
+                            rate: companyConfig.otTypes?.find(ot => ot.id === log.scheduleOT.otType)?.rate || 1.5,
+                            amount: (log.scheduleOT && log.scheduleOT.hasOT && log.scheduleOT.otHours > 0) ? 
+                                calculateActualOTHours(log.checkIn, log.checkOut, log.scheduleEndTime, log.scheduleOT.otHours) * 
+                                hourlyRate * (companyConfig.otTypes?.find(ot => ot.id === log.scheduleOT.otType)?.rate || 1.5) : 0
+                        } : null,
+                        incentive: (log.scheduleIncentive && log.scheduleIncentive > 0) ? log.scheduleIncentive : 0
+                    },
+                    deductionBreakdown: {
+                        late: (cycleData.syncDeduct && log.lateMinutes > 0) ? {
+                            minutes: log.lateMinutes,
+                            amount: PayrollCalculator.calculateLateDeduction(log.lateMinutes, deductionConfig)
+                        } : null
+                    }
                 };
             });
 
@@ -357,7 +495,7 @@ export const PayrollRepo = {
             const net = PayrollCalculator.calculateNet({
                 salary: salaryPay,
                 ot: otPay,
-                incentive: 0,
+                incentive: totalIncentive,
                 deductions: deductionAmount,
                 sso,
                 tax
@@ -387,7 +525,7 @@ export const PayrollRepo = {
                 financials: {
                     salary: salaryPay,
                     ot: otPay,
-                    incentive: 0,
+                    incentive: totalIncentive,
                     deductions: deductionAmount,
                     sso,
                     tax,
