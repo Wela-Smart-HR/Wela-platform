@@ -19,6 +19,7 @@ export default function Payroll() {
         loadCycles, handleCreateCycle, handleSelectCycle, handleDeleteCycle,
         handleOpenEmp, handleUpdateEmp, handleSaveEmpSheet,
         handleLockCycle, handleConfirmPayment, handleRemovePayment,
+        handleBatchPayment,
         goBack
     } = usePayrollSystem();
 
@@ -48,6 +49,7 @@ export default function Payroll() {
                     onSelectEmployee={handleOpenEmp}
                     onDeleteCycle={handleDeleteCycle}
                     onLockCycle={handleLockCycle}
+                    onBatchPayment={handleBatchPayment} // Added onBatchPayment
                     isLoading={isLoading}
                 />
             )}

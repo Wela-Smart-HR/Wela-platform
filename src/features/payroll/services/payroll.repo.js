@@ -739,6 +739,56 @@ export const PayrollRepo = {
     },
 
     /**
+     * Batch Approve Payments for Cycle (ยืนยันการจ่ายทั้งรอบ)
+     * Updates all unpaid/partial payslips to 'paid' status
+     * @param {string} cycleId 
+     */
+    async batchApprovePayments(cycleId) {
+        // 1. Get all payslips for this cycle
+        const q = query(
+            collection(db, 'payslips'),
+            where('cycleId', '==', cycleId)
+        );
+        const snap = await getDocs(q);
+
+        // 2. Batch update all unpaid/partial payslips
+        const batch = writeBatch(db);
+        let updatedCount = 0;
+
+        snap.docs.forEach(doc => {
+            const data = doc.data();
+            const net = data.financials?.net || 0;
+            const currentPaid = (data.payments || []).reduce((sum, p) => sum + p.amount, 0);
+            
+            // Only update if not already paid
+            if (data.paymentStatus !== 'paid' && currentPaid < net) {
+                const remainingAmount = net - currentPaid;
+                
+                batch.update(doc.ref, {
+                    payments: [
+                        ...(data.payments || []),
+                        {
+                            id: Date.now().toString(),
+                            amount: remainingAmount,
+                            date: new Date().toISOString(),
+                            method: 'batch_approval',
+                            note: 'ยืนยันการจ่ายทั้งรอบ'
+                        }
+                    ],
+                    paymentStatus: 'paid',
+                    paidAmount: net,
+                    updatedAt: serverTimestamp()
+                });
+                updatedCount++;
+            }
+        });
+
+        await batch.commit();
+        console.log(`Batch approved ${updatedCount} payments for cycle ${cycleId}`);
+        return { updatedCount };
+    },
+
+    /**
      * Batch Lock Cycle
      */
     async lockCycle(cycleId) {

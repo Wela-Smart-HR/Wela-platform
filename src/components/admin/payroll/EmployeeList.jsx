@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
-    CaretLeft, CaretDown, Trash, ChartPieSlice, Check, Circle, Funnel, Users, Lock
+    CaretLeft, CaretDown, Trash, ChartPieSlice, Check, Circle, Funnel, Users, Lock, Bank
 } from '@phosphor-icons/react';
 import { EmployeeListSkeleton } from './PayrollSkeleton';
 import { EmptyState } from './EmptyState';
+import Swal from 'sweetalert2';
 
 export const EmployeeList = ({
     activeCycle,
@@ -13,6 +14,7 @@ export const EmployeeList = ({
     onSelectEmployee,
     onDeleteCycle,
     onLockCycle,
+    onBatchPayment,
     isLoading
 }) => {
     if (isLoading) return <EmployeeListSkeleton />;
@@ -21,6 +23,76 @@ export const EmployeeList = ({
     const [groupBy, setGroupBy] = useState('none');
 
     const fmt = (n) => (n || 0).toLocaleString();
+
+    // ✅ ฟังก์ชันยืนยันการจ่ายทั้งรอบ
+    const handleBatchPayment = async () => {
+        if (!activeCycle) return;
+        
+        const remainingEmployees = employees.filter(emp => emp.paymentStatus !== 'paid');
+        
+        if (remainingEmployees.length === 0) {
+            await Swal.fire({
+                icon: 'info',
+                title: 'ทุกคนจ่ายครบแล้ว',
+                text: 'ไม่มีพนักงานที่ต้องจ่ายเงินในรอบนี้',
+                confirmButtonColor: '#2563EB'
+            });
+            return;
+        }
+
+        const result = await Swal.fire({
+            title: 'ยืนยันการจ่ายเงินทั้งรอบ?',
+            html: `
+                <div class="text-left space-y-2">
+                    <p>ระบบจะบันทึกการจ่ายเงินพนักงานทั้งหมดในรอบนี้:</p>
+                    <div class="bg-slate-50 p-3 rounded-lg">
+                        <div class="flex justify-between mb-1">
+                            <span>จำนวนพนักงาน:</span>
+                            <span class="font-bold">${remainingEmployees.length} คน</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>ยอดค้างจ่ายทั้งหมด:</span>
+                            <span class="font-bold text-red-600">฿${fmt(totals.totalRemaining)}</span>
+                        </div>
+                    </div>
+                    <p class="text-sm text-slate-600">หลังจากยืนยันแล้ว จะไม่สามารถแก้ไขข้อมูลได้</p>
+                </div>
+            `,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonText: 'ยืนยันการจ่าย',
+            cancelButtonText: 'ยกเลิก',
+            confirmButtonColor: '#10b981',
+            cancelButtonColor: '#ef4444',
+            customClass: {
+                popup: 'rounded-2xl',
+                confirmButton: 'rounded-xl px-6 py-2.5',
+                cancelButton: 'rounded-xl px-6 py-2.5'
+            }
+        });
+        
+        if (result.isConfirmed) {
+            try {
+                await onBatchPayment(activeCycle.id);
+                await Swal.fire({
+                    icon: 'success',
+                    title: 'ยืนยันการจ่ายเรียบร้อย!',
+                    text: 'บันทึกการจ่ายเงินพนักงานทั้งรอบเรียบร้อยแล้ว',
+                    confirmButtonColor: '#10b981',
+                    timer: 2000,
+                    showConfirmButton: false,
+                    customClass: { popup: 'rounded-2xl' }
+                });
+            } catch (error) {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'เกิดข้อผิดพลาด',
+                    text: error.message || 'ไม่สามารถยืนยันการจ่ายเงินได้',
+                    confirmButtonColor: '#2563EB'
+                });
+            }
+        }
+    };
 
     // Filtering Logic
     const filteredEmployees = employees.filter(emp => {
@@ -82,6 +154,15 @@ export const EmployeeList = ({
                                     title="ปิดรอบเงินเดือน"
                                 >
                                     <Lock size={18} weight="bold" />
+                                </button>
+                            )}
+                            {totals.totalRemaining > 0 && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); handleBatchPayment(); }}
+                                    className="w-10 h-10 rounded-full bg-white shadow-sm border border-green-100 flex items-center justify-center text-green-600 hover:bg-green-50 hover:text-green-700 transition-colors"
+                                    title="ยืนยันการจ่ายทั้งรอบ"
+                                >
+                                    <Bank size={18} weight="bold" />
                                 </button>
                             )}
                             <button

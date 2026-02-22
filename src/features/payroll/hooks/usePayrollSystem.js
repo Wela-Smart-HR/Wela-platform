@@ -231,6 +231,21 @@ export const usePayrollSystem = () => {
         }
     };
 
+    // --- Batch Payment Actions (ยืนยันการจ่ายทั้งรอบ) ---
+    const handleBatchPayment = async (cycleId) => {
+        try {
+            await PayrollRepo.batchApprovePayments(cycleId);
+            
+            // Refresh data
+            if (activeCycle && activeCycle.id === cycleId) {
+                const freshPayslips = await PayrollRepo.getPayslips(cycleId);
+                setEmployees(freshPayslips);
+            }
+        } catch (error) {
+            throw error;
+        }
+    };
+
     // --- 4. Payment Actions (The Guard Integration) ---
     const handleConfirmPayment = async (amount) => {
         if (!activeEmp) return;
@@ -425,37 +440,26 @@ export const usePayrollSystem = () => {
         };
     }, [employees, cycles, staffCount]);
 
+    // ✅ 1. เพิ่มฟังก์ชัน goBack ที่หายไป เพื่อแก้ไข Error ขาว
+    const goBack = () => {
+        setView('cycles');
+        setActiveCycle(null);
+        setEmployees([]);
+    };
+
     return {
-        // State
-        view,
-        cycles,
-        activeCycle,
-        employees,
-        isLoading,
-        stats,
-        // Modals State
+        view, cycles, activeCycle, employees, isLoading, stats,
         isNewCycleOpen, setIsNewCycleOpen,
         isPaymentOpen, setIsPaymentOpen,
-        activeEmp,
+        activeEmp, setActiveEmp,
 
         // Actions
-        loadCycles,
-        handleCreateCycle,
-        handleSelectCycle,
-        handleDeleteCycle,
-        handleOpenEmp,
-        handleUpdateEmp,
-        handleSaveEmpSheet,
-        handleLockCycle,
-        handleConfirmPayment,
-        handleRemovePayment,
-        setActiveEmp,
-
-        // New: Rebuild & Validation
-        handleRebuildCycle,
-        handleValidateCycle,
-
-        // Navigation
-        goBack: () => setView('cycles')
+        loadCycles, handleCreateCycle, handleSelectCycle, handleDeleteCycle,
+        handleOpenEmp, handleUpdateEmp, handleSaveEmpSheet,
+        handleLockCycle, handleConfirmPayment, handleRemovePayment,
+        handleBatchPayment,
+        handleRebuildCycle,  // ✅ เพิ่มกลับเข้ามา
+        handleValidateCycle, // ✅ เพิ่มกลับเข้ามา
+        goBack               // ✅ เพิ่มกลับเข้ามา
     };
 };
