@@ -182,101 +182,119 @@ export default function Payslip() {
                 </div>
             )}
 
-            {/* ส่วนลับ: A4 Formal Template (ซ่อนไว้ด้วย position absolute) */}
+            {/* ส่วนลับ: A4 Formal Template (Bank-Grade Standard) */}
             {payslipData && (
-                <div id="formal-payslip-a4" style={{ position: 'absolute', top: '-9999px', left: '-9999px', width: '210mm', minHeight: '297mm', backgroundColor: 'white', padding: '15mm', color: '#1f2937', fontFamily: 'sans-serif' }}>
-                    {/* 1. Header */}
-                    <div className="flex justify-between items-start border-b-2 border-slate-800 pb-6 mb-8">
-                        <div className="flex gap-4 items-center">
-                            <div className="w-16 h-16 bg-slate-900 text-white flex items-center justify-center text-2xl font-bold rounded-lg">W</div>
+                <div id="formal-payslip-a4" style={{ 
+                    position: 'absolute', top: '-9999px', left: '-9999px', 
+                    width: '210mm', minHeight: '297mm', backgroundColor: 'white', 
+                    padding: '15mm', color: '#1f2937', fontFamily: 'sans-serif',
+                    boxSizing: 'border-box'
+                }}>
+                    <div className="border border-slate-800 p-8 h-full">
+                        {/* 1. Header & Company Info */}
+                        <div className="flex justify-between items-start border-b border-slate-800 pb-4 mb-4">
                             <div>
-                                <h1 className="text-xl font-bold text-slate-900 uppercase tracking-wider">Wela HR Platform</h1>
-                                <p className="text-xs text-slate-500">บริษัท เวฬา แพลตฟอร์ม จำกัด (สำนักงานใหญ่)</p>
-                                <p className="text-xs text-slate-500">123 ถนนสาทร แขวงยานนาวา เขตสาทร กทม. 10120</p>
+                                <h1 className="text-xl font-bold text-slate-900 uppercase tracking-widest">บริษัท เวฬา แพลตฟอร์ม จำกัด</h1>
+                                <p className="text-xs text-slate-700">123 ถนนสาทร แขวงยานาวา เขตสาทร กทม. 10120</p>
+                                <p className="text-xs text-slate-700 mt-1"><span className="font-bold">เลขประจำตัวผู้เสียภาษี:</span> 01055xxxxxxxx</p>
+                            </div>
+                            <div className="text-right">
+                                <h2 className="text-2xl font-bold text-slate-900 uppercase tracking-widest">PAYSLIP</h2>
+                                <p className="text-sm font-bold text-slate-700">ใบแจ้งเงินเดือน</p>
+                                <div className="mt-2 bg-slate-100 px-3 py-1 rounded text-sm font-bold text-slate-700 inline-block">
+                                    งวด: {currentDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}
+                                </div>
                             </div>
                         </div>
-                        <div className="text-right">
-                            <h2 className="text-2xl font-bold text-slate-800 uppercase">Payslip</h2>
-                            <p className="text-sm font-semibold text-slate-500">ใบแจ้งเงินเดือน</p>
-                            <div className="mt-2 bg-slate-100 px-3 py-1 rounded text-sm font-bold text-slate-700 inline-block">
-                                งวด: {currentDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}
+
+                        {/* 2. Employee & Payment Info (ตารางข้อมูลพนักงาน) */}
+                        <div className="grid grid-cols-2 gap-4 border border-slate-800 mb-4 text-xs">
+                            <div className="p-3 border-r border-slate-800 space-y-2">
+                                <div className="flex"><span className="w-28 font-bold">รหัสพนักงาน:</span> <span>{payslipData.employeeId?.slice(0, 6)}</span></div>
+                                <div className="flex"><span className="w-28 font-bold">ชื่อ-สกุล:</span> <span>{payslipData.employeeSnapshot?.name || currentUser?.name}</span></div>
+                                <div className="flex"><span className="w-28 font-bold">ตำแหน่ง:</span> <span>{payslipData.employeeSnapshot?.role || currentUser?.role}</span></div>
+                                <div className="flex"><span className="w-28 font-bold">เลขบัตรประชาชน:</span> <span>{payslipData.employeeSnapshot?.idCard || '-'}</span></div>
+                            </div>
+                            <div className="p-3 space-y-2">
+                                <div className="flex"><span className="w-32 font-bold">ประจำงวดเดือน:</span> <span>{currentDate.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}</span></div>
+                                <div className="flex"><span className="w-32 font-bold">วันที่จ่ายเงิน:</span> <span>{payslipData.updatedAt ? formatDate(payslipData.updatedAt.toDate()) : '-'}</span></div>
+                                <div className="flex"><span className="w-32 font-bold">โอนเข้าธนาคาร:</span> <span>{payslipData.employeeSnapshot?.bankName || '-'}</span></div>
+                                <div className="flex"><span className="w-32 font-bold">เลขที่บัญชี:</span> <span>{payslipData.employeeSnapshot?.bankAccount || '-'}</span></div>
+                            </div>
+                        </div>
+
+                        {/* 3. Earnings & Deductions Table */}
+                        <div className="border border-slate-800 flex flex-col mb-4">
+                            {/* Table Header */}
+                            <div className="grid grid-cols-2 border-b border-slate-800 bg-slate-100 text-xs font-bold">
+                                <div className="p-2 border-r border-slate-800 text-center">รายได้ (Earnings)</div>
+                                <div className="p-2 text-center">รายการหัก (Deductions)</div>
+                            </div>
+
+                            {/* Table Body */}
+                            <div className="grid grid-cols-2 text-xs min-h-[120px]">
+                                {/* ฝั่งรายได้ */}
+                                <div className="border-r border-slate-800 p-2 space-y-1">
+                                    {earningsList.map((item, i) => (
+                                        <div key={i} className="flex justify-between">
+                                            <span>{item.title}</span>
+                                            <span>{formatMoney(item.amount)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                {/* ฝั่งรายการหัก */}
+                                <div className="p-2 space-y-1">
+                                    {deductionsList.map((item, i) => (
+                                        <div key={i} className="flex justify-between">
+                                            <span>{item.title}</span>
+                                            <span>{formatMoney(item.amount)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Table Footer (Totals) */}
+                            <div className="grid grid-cols-2 border-t border-slate-800 text-xs font-bold bg-slate-50">
+                                <div className="p-2 border-r border-slate-800 flex justify-between">
+                                    <span>รวมรายได้ (Total Earnings)</span>
+                                    <span>{formatMoney(totalEarnings)}</span>
+                                </div>
+                                <div className="p-2 flex justify-between">
+                                    <span>รวมรายการหัก (Total Deductions)</span>
+                                    <span>{formatMoney(totalDeductions)}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 4. Net Pay Summary */}
+                        <div className="flex justify-end mb-6">
+                            <div className="border border-slate-800 w-[45%] flex text-sm">
+                                <div className="w-1/2 p-2 bg-slate-100 font-bold border-r border-slate-800 flex items-center justify-center text-center">
+                                    เงินได้สุทธิ<br/>(Net Payable)
+                                </div>
+                                <div className="w-1/2 p-2 flex items-center justify-end text-xl font-bold">
+                                    {formatMoney(payslipData.financials?.net || 0)} บาท
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 5. System Generated Clause & Signature */}
+                        <div className="mt-8 pt-6 border-t border-slate-400 grid grid-cols-2 gap-8 text-xs">
+                            <div>
+                                <p className="font-bold mb-2">หมายเหตุ:</p>
+                                <p className="text-slate-600">
+                                    เอกสารฉบับนี้พิมพ์จากระบบคอมพิวเตอร์<br/>
+                                    ถือเป็นเอกสารที่ถูกต้องสมบูรณ์โดยกฎหมาย<br/>
+                                    ไม่จำเป็นต้องประทับตราสำคัญ
+                                </p>
+                            </div>
+                            <div className="text-center">
+                                <div className="border-b border-slate-800 w-3/4 mx-auto mb-2 h-8"></div>
+                                <p className="font-bold">ผู้มีอำนาจลงนาม / ฝ่ายทรัพยากรบุคคล</p>
+                                <p className="text-slate-600">Authorized Signature</p>
                             </div>
                         </div>
                     </div>
-
-                    {/* 2. Employee Info */}
-                    <div className="grid grid-cols-2 gap-8 mb-8 text-sm">
-                        <div>
-                            <p className="text-slate-400 text-xs font-bold uppercase mb-1">พนักงาน (Employee)</p>
-                            <p className="font-bold text-lg text-slate-900">{payslipData.employeeSnapshot?.name || currentUser?.name}</p>
-                            <p className="text-slate-600">{payslipData.employeeSnapshot?.role || currentUser?.role} | ID: {payslipData.employeeId?.slice(0, 6)}</p>
-                        </div>
-                        <div className="text-right">
-                            <p className="text-slate-400 text-xs font-bold uppercase mb-1">วันที่จ่าย (Payment Date)</p>
-                            <p className="font-bold text-lg text-slate-900">{payslipData.updatedAt ? formatDate(payslipData.updatedAt.toDate()) : '-'}</p>
-                            {/* ✅ อัปเดตสถานะในใบปริ้นท์ด้วย */}
-                            <p className="text-slate-600">สถานะ: {payslipData.paymentStatus === 'paid' ? 'โอนจ่ายแล้ว (Paid)' : (payslipData.isAcknowledged || isLocalAcknowledged) ? 'ยืนยันยอดแล้ว' : 'รอตรวจสอบ'}</p>
-                        </div>
-                    </div>
-
-                    {/* 3. Table */}
-                    <div className="border border-slate-200 rounded-lg overflow-hidden mb-8">
-                        <div className="grid grid-cols-2 bg-slate-50 border-b border-slate-200">
-                            <div className="p-3 font-bold text-center border-r border-slate-200 text-slate-700">รายได้ (Earnings)</div>
-                            <div className="p-3 font-bold text-center text-slate-700">รายการหัก (Deductions)</div>
-                        </div>
-                        <div className="grid grid-cols-2">
-                            {/* ฝั่งรายได้ */}
-                            <div className="border-r border-slate-200 p-4 space-y-2 min-h-[200px]">
-                                {earningsList.map((item, i) => (
-                                    <div key={i} className="flex justify-between text-sm">
-                                        <span className="text-slate-600">{item.title}</span>
-                                        <span className="font-bold text-emerald-600">{formatMoney(item.amount)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                            {/* ฝั่งรายจ่าย */}
-                            <div className="p-4 space-y-2 min-h-[200px]">
-                                {deductionsList.map((item, i) => (
-                                    <div key={i} className="flex justify-between text-sm">
-                                        <span className="text-slate-600">{item.title}</span>
-                                        <span className="font-bold text-red-500">{formatMoney(item.amount)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                        {/* Total Row */}
-                        <div className="grid grid-cols-2 border-t border-slate-200 bg-slate-50">
-                            <div className="p-3 flex justify-between border-r border-slate-200">
-                                <span className="font-bold text-sm text-slate-700">รวมรายได้</span>
-                                <span className="font-bold text-sm text-emerald-600">{formatMoney(totalEarnings)}</span>
-                            </div>
-                            <div className="p-3 flex justify-between">
-                                <span className="font-bold text-sm text-slate-700">รวมรายการหัก</span>
-                                <span className="font-bold text-sm text-red-500">{formatMoney(totalDeductions)}</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* 4. Net Pay Big Box */}
-                    <div className="flex justify-end mb-12">
-                        <div className="bg-slate-900 text-white p-6 rounded-lg min-w-[300px] text-right">
-                            <p className="text-slate-400 text-xs font-bold uppercase mb-1">ยอดเงินสุทธิ (Net Pay)</p>
-                            <h2 className="text-4xl font-bold">{formatMoney(payslipData.financials?.net || 0)} <span className="text-sm font-normal text-slate-400">บาท</span></h2>
-                        </div>
-                    </div>
-
-                    {/* 5. Footer / Signature */}
-                    <div className="grid grid-cols-2 gap-12 pt-8 border-t border-slate-200">
-                        <div>
-                            <p className="text-xs text-slate-400 mb-8">หมายเหตุ: เอกสารนี้ถูกสร้างขึ้นโดยระบบอัตโนมัติ ไม่จำเป็นต้องประทับตราสำคัญ</p>
-                        </div>
-                        <div className="text-center">
-                            <div className="border-b border-slate-300 w-full h-8 mb-2"></div>
-                            <p className="text-xs font-bold text-slate-500">ผู้มีอำนาจลงนาม (Authorized Signature)</p>
-                        </div>
-                    </div>
-
                 </div>
             )}
         </div>
