@@ -92,13 +92,14 @@ export function useTodayCheckIn(userId) {
                     // Check for Stale Check-in (> 20 Hours)
                     if (clockInTime) {
                         const hoursSinceIn = (new Date() - clockInTime) / (1000 * 60 * 60);
-                        if (hoursSinceIn > 20) {
-                            // User forgot to clock out yesterday
+                        // ✅ FIX: Only consider it stuck if it hasn't been submitted for manual review yet
+                        if (hoursSinceIn > 20 && record.status !== 'pending_review') {
+                            // User forgot to clock out yesterday AND hasn't sent a request yet
                             isStuck = true;
                             staleCheckIn = record;
                             isCheckedIn = false; // Forced false to allow "Closing" flow
                         } else {
-                            // Normal working state
+                            // Normal working state (or already submitted request)
                             isCheckedIn = true;
                         }
                     }
@@ -128,8 +129,28 @@ export function useTodayCheckIn(userId) {
                 const todayBusinessDate = DateUtils.getBusinessDate(new Date(), 4); // "YYYY-MM-DD"
                 const recordBusinessDate = DateUtils.getBusinessDate(clockInTime, 4);
 
+                // More strict filtering: Only show records from current business day
+                // or records that are still active (no clock out)
                 if (recordBusinessDate < todayBusinessDate && clockOutTime) {
                     todayRecord = null;
+                }
+
+                // Additional check: If record is from previous day but still active (no clock out),
+                // it should be treated as a stale shift, not today's active record (unless pending review)
+                if (recordBusinessDate < todayBusinessDate && !clockOutTime) {
+                    if (record.status !== 'pending_review') {
+                        isStuck = true;
+                        staleCheckIn = record;
+                        isCheckedIn = false;
+                        todayRecord = null;
+                    } else {
+                        // It's from yesterday, but already has a pending close request
+                        // We shouldn't flag it as stuck, but we still don't want to show it as "Today"
+                        isStuck = false;
+                        staleCheckIn = null;
+                        isCheckedIn = false;
+                        todayRecord = null;
+                    }
                 }
 
                 setStatus({

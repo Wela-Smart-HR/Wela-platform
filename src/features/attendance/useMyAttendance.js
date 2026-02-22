@@ -24,7 +24,7 @@ import { useAttendanceActions } from './hooks/useAttendanceActions';
 import { useOfflineSync } from './hooks/useOfflineSync';
 import { attendanceRepo } from '../../di/attendanceDI';
 
-export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
+export function useMyAttendance(userId, companyId, currentMonth = new Date(), currentUser = null) {
     const { companyConfig } = useGlobalConfig();
 
     // === Local State (Server + Instant Updates) ===
@@ -83,6 +83,7 @@ export function useMyAttendance(userId, companyId, currentMonth = new Date()) {
         distance,
         isOffline,
         companyConfig,
+        currentUser, // ✅ Pass currentUser down
         onSuccess: refreshTodayRecord // Callback to update local state immediately
     });
 

@@ -44,7 +44,21 @@ export class AttendanceLog {
         if (props.clockOut) {
             const duration = DateUtils.diffInMinutes(props.clockIn, props.clockOut);
             if (duration < 0) {
+                // Check if this might be a cross-day shift issue
+                const clockInHour = props.clockIn.getHours();
+                const clockOutHour = props.clockOut.getHours();
+                
+                if (clockInHour >= 18 && clockOutHour < 12) {
+                    // This looks like a night shift that crosses midnight
+                    return Result.fail("Invalid cross-day shift detected. Clock-out time appears to be from the next day but wasn't handled correctly.");
+                }
+                
                 return Result.fail("Clock-out time cannot be before Clock-in time");
+            }
+            
+            // Additional validation: Clock-out shouldn't be more than 24 hours after clock-in
+            if (duration > 24 * 60) {
+                return Result.fail("Work duration exceeds 24 hours. Please check the times.");
             }
         }
 

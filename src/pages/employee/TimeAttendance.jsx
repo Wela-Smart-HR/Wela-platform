@@ -16,15 +16,16 @@ import { useDialog } from '../../contexts/DialogContext';
 import { useMyAttendance } from '../../features/attendance/useMyAttendance';
 import { useMyRequests } from '../../features/requests/useMyRequests';
 
-// Components (Lazy Load for Performance)
-const AttendanceMiniMap = React.lazy(() => import('../../components/employee/AttendanceMiniMap'));
-const LocationHelpModal = React.lazy(() => import('../../components/employee/LocationHelpModal'));
 import LiveClock from '../../components/employee/LiveClock';
 import HoldButton from '../../components/employee/HoldButton';
 import RetroRequestModal from '../../components/employee/Modals/RetroRequestModal';
 import UnscheduledWorkModal from '../../components/employee/Modals/UnscheduledWorkModal';
 import CloseShiftModal from '../../components/employee/Modals/CloseShiftModal';
 import ShiftSelectionModal from '../../components/employee/Modals/ShiftSelectionModal';
+
+// Components (Lazy Load for Performance)
+const AttendanceMiniMap = React.lazy(() => import('../../components/employee/AttendanceMiniMap'));
+const LocationHelpModal = React.lazy(() => import('../../components/employee/LocationHelpModal'));
 
 // Utilities
 const formatDateForInput = (dateObj) => {
@@ -77,7 +78,7 @@ export default function TimeAttendance() {
         isStuck,
         staleCheckIn,
         closeStaleShift
-    } = useMyAttendance(currentUser?.uid, currentUser?.companyId, currentMonth);
+    } = useMyAttendance(currentUser?.uid, currentUser?.companyId, currentMonth, currentUser);
 
     // Mapped State
     const currentLocation = hookLocation;
@@ -304,7 +305,27 @@ export default function TimeAttendance() {
         setClocking(true);
         try {
             if (typeof closeStaleShift === 'function') {
-                await closeStaleShift(staleCheckIn?.id, closeShiftForm.outTime, closeShiftForm.reason);
+                // Combine date and time string into a Date object
+                // Use +07:00 or local parser. new Date(`${date}T${time}:00`) works in local timezone.
+                const manualClockOutTime = new Date(`${closeShiftForm.date}T${closeShiftForm.outTime}:00`);
+
+                if (isNaN(manualClockOutTime.getTime())) {
+                    throw new Error("รูปแบบวันที่หรือเวลาไม่ถูกต้อง");
+                }
+
+                const res = await closeStaleShift(
+                    staleCheckIn?.id,
+                    manualClockOutTime,
+                    closeShiftForm.reason,
+                    staleCheckIn?.clockIn // Pass the original clock-in time
+                );
+
+                if (!res.success) {
+                    // Return early, don't close modal, show error
+                    dialog.showAlert(res.message || "เกิดข้อผิดพลาดในการปิดกะ", "Error", "error");
+                    setClocking(false);
+                    return;
+                }
             }
             setIsCloseShiftModalOpen(false);
             dialog.showAlert("ปิดกะก่อนหน้าเรียบร้อยแล้ว", "สำเร็จ", "success");

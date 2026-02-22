@@ -95,6 +95,7 @@ export default function Requests() {
     if (req.type === 'unscheduled_alert') return 'ด่วน! นอกกะ';
     if (req.type === 'unscheduled-work') return 'ขอรับรองวันทำงาน';
     if (req.type === 'leave') return req.leaveType || 'ลา (ไม่ระบุ)';
+    if (req.type === 'stale-shift-close') return 'ลืมตอกบัตรออก';
     return 'แก้เวลา';
   };
 
@@ -184,12 +185,15 @@ export default function Requests() {
                         </div>
                       </div>
 
-                      {/* Time Details (always visible for adjustment/unscheduled-work requests) */}
-                      {(req.type === 'attendance-adjustment' || req.type === 'retro' || req.type === 'adjustment' || req.type === 'unscheduled-work') && (
+                      {/* Time Details (always visible for adjustment/unscheduled-work/stale-shift requests) */}
+                      {(req.type === 'attendance-adjustment' || req.type === 'retro' || req.type === 'adjustment' || req.type === 'unscheduled-work' || req.type === 'stale-shift-close') && (
                         <div className="flex items-center gap-2 mt-1.5">
                           <Clock size={12} className={`${req.type === 'unscheduled-work' ? 'text-amber-400' : 'text-blue-400'} shrink-0`} />
                           <span className={`text-[11px] font-bold ${req.type === 'unscheduled-work' ? 'text-amber-600' : 'text-blue-600'}`}>
-                            {req.timeIn || req.data?.timeIn || '--:--'} → {req.timeOut || req.data?.timeOut || '--:--'}
+                            {req.type === 'stale-shift-close' && req.manualTime
+                              ? `ขอออกงานเวลา ${new Date(req.manualTime).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`
+                              : `${req.timeIn || req.data?.timeIn || '--:--'} → ${req.timeOut || req.data?.timeOut || '--:--'}`
+                            }
                           </span>
                         </div>
                       )}
@@ -214,9 +218,13 @@ export default function Requests() {
                         <label className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1 mb-1"><NotePencil /> รายละเอียด/เหตุผล</label>
                         <p className="text-sm text-slate-700 bg-white p-3 rounded-xl border border-slate-100 leading-relaxed">
                           {/* ✅ FIX: Match all time adjustment types + fallback for nested data */}
-                          {(req.type === 'attendance-adjustment' || req.type === 'retro' || req.type === 'adjustment' || req.type === 'unscheduled-work') && (
+                          {(req.type === 'attendance-adjustment' || req.type === 'retro' || req.type === 'adjustment' || req.type === 'unscheduled-work' || req.type === 'stale-shift-close') && (
                             <span className={`block font-bold mb-2 ${req.type === 'unscheduled-work' ? 'text-amber-600' : 'text-blue-600'}`}>
-                              เวลาที่ขอ: {req.data?.date || req.targetDate || req.date || '-'} &nbsp;|&nbsp; {req.timeIn || req.data?.timeIn || '--:--'} → {req.timeOut || req.data?.timeOut || '--:--'}
+                              เวลาที่ขอ: {req.data?.date || req.targetDate || req.date || (req.manualTime ? new Date(req.manualTime).toLocaleDateString('th-TH') : '-')} &nbsp;|&nbsp;
+                              {req.type === 'stale-shift-close' && req.manualTime
+                                ? `ออกงานเวลา ${new Date(req.manualTime).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`
+                                : `${req.timeIn || req.data?.timeIn || '--:--'} → ${req.timeOut || req.data?.timeOut || '--:--'}`
+                              }
                             </span>
                           )}
                           {req.reason || "- ไม่มีรายละเอียด -"}

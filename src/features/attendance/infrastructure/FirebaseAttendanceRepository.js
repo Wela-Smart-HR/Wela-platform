@@ -4,7 +4,7 @@ import { Location } from '../domain/value-objects/Location.js';
 import { DateUtils } from '../../../shared/kernel/DateUtils.js';
 
 import { db } from '../../../shared/lib/firebase.js';
-import { doc, setDoc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 /**
  * Firebase Implementation
@@ -233,7 +233,7 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
         });
 
         // Convert Groups to Domain objects
-        return Object.values(groups).map(g => {
+        return Object.entries(groups).map(([dateKey, g]) => {
             if (!g.in) return null; // Must have at least Clock In
 
             const clockInTime = g.in.createdAt ? g.in.createdAt.toDate() : new Date(g.in.localTimestamp);
@@ -243,6 +243,7 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
                 id: g.inId, // Use ClockIn Doc ID as Identity
                 companyId: g.companyId,
                 employeeId: g.userId,
+                shiftDate: dateKey, // ✅ FIX: Added missing shiftDate
                 clockIn: clockInTime,
                 clockOut: clockOutTime,
                 clockInLocation: g.in.location ? Location.fromPersistence(g.in.location) : null,

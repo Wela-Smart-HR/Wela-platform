@@ -16,6 +16,7 @@ export function useAttendanceActions({
     distance,
     isOffline,
     companyConfig,
+    currentUser, // ✅ FIX: Added currentUser to avoid ReferenceError
     onSuccess // callback เช่น loadTodayRecord
 }) {
     const [loading, setLoading] = useState(false);
@@ -270,9 +271,25 @@ export function useAttendanceActions({
      * สั่งปิดกะแบบ Manual (สำหรับเคสลืมออกงาน)
      * 🛡️ SECURITY: สร้างคำขอให้ admin อนุมัติด้วย (กันกระสุน)
      */
-    const closeStaleShift = useCallback(async (logId, time, reason) => {
+    const closeStaleShift = useCallback(async (logId, time, reason, clockInTime) => {
         setLoading(true);
         try {
+            // ✅ ARCHITECTURE FIX: Cross-day Shift Compensation (T+1)
+            // เช็คว่าถ้าเวลาที่เลือกมาเป็นช่วงเช้า (เช่น 01:00 - 12:00) 
+            // แต่กะนั้นเป็นของวันที่ 18 (Night Shift) เราต้องบวกวันเพิ่มให้ 1 วัน
+            // เพื่อไม่ให้เกิด Error: Clock-out < Clock-in
+            let adjustedTime = new Date(time);
+
+            // Get the clock-in time of the stale shift to determine if we need cross-day adjustment
+            const staleClockInTime = new Date(clockInTime);
+
+            // ✅ BULLETPROOF CROSS-DAY LOGIC
+            // If the requested clock-out time is earlier than the clock-in time, it must be the next day
+            if (adjustedTime < staleClockInTime) {
+                adjustedTime.setDate(adjustedTime.getDate() + 1);
+                console.log("[HR Logic] Auto-adjusted cross-day shift to T+1 (out < in). Clock-in:", staleClockInTime, "Adjusted Out:", adjustedTime);
+            }
+
             // 1. สร้างคำขอให้ admin อนุมัติก่อน
             const requestRef = await addDoc(collection(db, "requests"), {
                 companyId,
@@ -281,15 +298,15 @@ export function useAttendanceActions({
                 type: 'stale-shift-close', // 🆕 ประเภทใหม่สำหรับปิดกะเก่า
                 status: 'pending',
                 originalLogId: logId,
-                manualTime: time.toISOString(),
+                manualTime: adjustedTime.toISOString(),
                 reason: reason,
                 createdAt: serverTimestamp()
             });
 
             // 2. บันทึกข้อมูลไว้ใน attendance_logs แต่ยังไม่ active (รออนุมัติ)
-            const result = await attendanceService.closeStaleShift(userId, logId, time, reason);
+            const result = await attendanceService.closeStaleShift(userId, logId, adjustedTime, reason);
             if (result.isFailure) throw new Error(result.error);
-            
+
             // 3. อัปเดตคำขอด้วยข้อมูลที่บันทึก
             await updateDoc(requestRef, {
                 attendanceLogId: result.getValue().id,

@@ -75,16 +75,16 @@ export default function Payslip() {
 
     // เตรียมข้อมูลสำหรับแสดงผล
     const earningsList = payslipData ? [
-        { title: 'เงินเดือน / Salary', amount: payslipData.baseSalary },
-        { title: 'ค่าล่วงเวลา / Overtime', amount: payslipData.otPay },
-        { title: 'เบี้ยขยัน / Incentive', amount: payslipData.incentive },
+        { title: 'เงินเดือน / Salary', amount: payslipData.financials?.salary || 0 },
+        { title: 'ค่าล่วงเวลา / Overtime', amount: payslipData.financials?.ot || 0 },
+        { title: 'เบี้ยขยัน / Incentive', amount: payslipData.financials?.incentive || 0 },
         ...(payslipData.customIncomes || [])
     ].filter(i => i.amount > 0) : [];
 
     const deductionsList = payslipData ? [
-        { title: 'มาสาย/ขาดงาน / Late/Absent', amount: payslipData.lateDeduction },
-        { title: 'ประกันสังคม / Social Security', amount: payslipData.socialSecurity },
-        { title: 'ภาษี / Withholding Tax', amount: payslipData.tax },
+        { title: 'มาสาย/ขาดงาน / Late/Absent', amount: payslipData.financials?.deductions || 0 },
+        { title: 'ประกันสังคม / Social Security', amount: payslipData.financials?.sso || 0 },
+        { title: 'ภาษี / Withholding Tax', amount: payslipData.financials?.tax || 0 },
         ...(payslipData.customDeductions || [])
     ].filter(i => i.amount > 0) : [];
 
@@ -122,8 +122,8 @@ export default function Payslip() {
                                 <p className="text-slate-400 text-[10px] font-bold uppercase tracking-widest">ยอดเงินสุทธิ (Net Pay)</p>
                                 <button onClick={() => setShowAmount(!showAmount)} className="text-slate-400 hover:text-white transition">{showAmount ? <Eye size={18} weight="bold" /> : <EyeSlash size={18} weight="bold" />}</button>
                             </div>
-                            <div className="mb-4 relative z-10 h-10 flex items-center">{showAmount ? <h2 className="text-4xl font-bold tracking-tight">฿{formatMoney(payslipData.netTotal)}</h2> : <h2 className="text-4xl font-bold tracking-widest text-slate-500 mt-2">••••••</h2>}</div>
-                            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-lg w-fit border border-white/5"><div className={`w-1.5 h-1.5 rounded-full ${payslipData.status === 'paid' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-orange-400'}`}></div><span className="text-[10px] font-bold tracking-wide text-slate-200">{payslipData.status === 'paid' ? 'โอนจ่ายเรียบร้อย' : 'รอตรวจสอบ'}</span></div>
+                            <div className="mb-4 relative z-10 h-10 flex items-center">{showAmount ? <h2 className="text-4xl font-bold tracking-tight">฿{formatMoney(payslipData.financials?.net || 0)}</h2> : <h2 className="text-4xl font-bold tracking-widest text-slate-500 mt-2">••••••</h2>}</div>
+                            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-lg w-fit border border-white/5"><div className={`w-1.5 h-1.5 rounded-full ${payslipData.paymentStatus === 'paid' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-orange-400'}`}></div><span className="text-[10px] font-bold tracking-wide text-slate-200">{payslipData.paymentStatus === 'paid' ? 'โอนจ่ายเรียบร้อย' : 'รอตรวจสอบ'}</span></div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
@@ -175,13 +175,13 @@ export default function Payslip() {
                     <div className="grid grid-cols-2 gap-8 mb-8 text-sm">
                         <div>
                             <p className="text-slate-400 text-xs font-bold uppercase mb-1">พนักงาน (Employee)</p>
-                            <p className="font-bold text-lg text-slate-900">{payslipData.name}</p>
-                            <p className="text-slate-600">{payslipData.role} | ID: {payslipData.userId?.slice(0, 6)}</p>
+                            <p className="font-bold text-lg text-slate-900">{payslipData.employeeSnapshot?.name || currentUser?.name}</p>
+                            <p className="text-slate-600">{payslipData.employeeSnapshot?.role || currentUser?.role} | ID: {payslipData.employeeId?.slice(0, 6)}</p>
                         </div>
                         <div className="text-right">
                             <p className="text-slate-400 text-xs font-bold uppercase mb-1">วันที่จ่าย (Payment Date)</p>
                             <p className="font-bold text-lg text-slate-900">{payslipData.updatedAt ? formatDate(payslipData.updatedAt.toDate()) : '-'}</p>
-                            <p className="text-slate-600">สถานะ: {payslipData.status === 'paid' ? 'โอนจ่ายแล้ว (Paid)' : 'รอตรวจสอบ'}</p>
+                            <p className="text-slate-600">สถานะ: {payslipData.paymentStatus === 'paid' ? 'โอนจ่ายแล้ว (Paid)' : 'รอตรวจสอบ'}</p>
                         </div>
                     </div>
 
@@ -228,7 +228,7 @@ export default function Payslip() {
                     <div className="flex justify-end mb-12">
                         <div className="bg-slate-900 text-white p-6 rounded-lg min-w-[300px] text-right">
                             <p className="text-slate-400 text-xs font-bold uppercase mb-1">ยอดเงินสุทธิ (Net Pay)</p>
-                            <h2 className="text-4xl font-bold">{formatMoney(payslipData.netTotal)} <span className="text-sm font-normal text-slate-400">บาท</span></h2>
+                            <h2 className="text-4xl font-bold">{formatMoney(payslipData.financials?.net || 0)} <span className="text-sm font-normal text-slate-400">บาท</span></h2>
                         </div>
                     </div>
 

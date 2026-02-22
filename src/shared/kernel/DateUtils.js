@@ -54,6 +54,14 @@ export const DateUtils = {
         return formatInTimeZone(d, TIMEZONE, formatStr);
     },
 
+    // ✅ FIX: เพิ่ม formatDate เพื่อป้องกัน Backend/Repo Crash
+    formatDate: (date, formatStr = 'yyyy-MM-dd') => {
+        if (!date) return null;
+        const d = typeof date === 'string' ? parseISO(date) : date;
+        if (!isValid(d)) return null;
+        return formatInTimeZone(d, TIMEZONE, formatStr);
+    },
+
     /**
      * Get the "Business Date" (Accounting Date)
      * Critical for Nightlife/Shift work.

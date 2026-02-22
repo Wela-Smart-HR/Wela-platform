@@ -57,17 +57,23 @@ export const payrollRepo = {
         try {
             const q = query(
                 collection(db, 'payslips'),
-                where('userId', '==', userId),
-                where('monthId', '==', monthId)
+                where('employeeId', '==', userId)
             );
 
             const snap = await getDocs(q);
             if (snap.empty) return null;
 
-            return {
-                id: snap.docs[0].id,
-                ...snap.docs[0].data()
-            };
+            // Filter in JS since month is embedded in cycleId: "company_YYYY-MM_period"
+            const payslips = snap.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .filter(p => p.cycleId && p.cycleId.includes(`_${monthId}_`));
+
+            if (payslips.length === 0) return null;
+
+            // Sort so the latest update comes first
+            payslips.sort((a, b) => b.updatedAt?.toMillis() - a.updatedAt?.toMillis());
+
+            return payslips[0];
         } catch (error) {
             console.error('Error getting user payslip:', error);
             throw error;
@@ -102,7 +108,7 @@ export const payrollRepo = {
         try {
             const q = query(
                 collection(db, 'payslips'),
-                where('userId', '==', userId)
+                where('employeeId', '==', userId)
             );
 
             const snap = await getDocs(q);
@@ -111,8 +117,8 @@ export const payrollRepo = {
                 ...doc.data()
             }));
 
-            // Sort by monthId descending
-            return payslips.sort((a, b) => b.monthId.localeCompare(a.monthId)).slice(0, limit);
+            // Sort by cycleId or createdAt descending
+            return payslips.sort((a, b) => (b.createdAt?.toMillis() || 0) - (a.createdAt?.toMillis() || 0)).slice(0, limit);
         } catch (error) {
             console.error('Error getting payslip history:', error);
             throw error;

@@ -292,6 +292,26 @@ export const requestsRepo = {
                             work_minutes: 0,
                             late_minutes: 0,
                             note: `Approved Unscheduled Work Ref: ${prevReq.documentNo}`,
+                        });
+                    }
+
+                    // Case D: ลืมตอกบัตรออก (Stale Shift Close)
+                    // เมื่ออนุมัติ -> เข้าไปอัปเดต Log เดิมให้มีเวลาปิดกะที่สมบูรณ์
+                    if (prevReq.type === 'stale-shift-close') {
+                        if (!prevReq.originalLogId || !prevReq.manualTime) {
+                            console.error('[approveRequest] Missing target log ID or manualTime for stale-shift-close');
+                            throw new Error('ข้อมูลอ้างอิงของกะไม่ครบถ้วน ไม่สามารถอนุมัติได้');
+                        }
+
+                        // We can't use DateUtils here directly but we can create the ISO string
+                        // manualTime is already in UTC string format from the request
+                        const closeTimeISO = new Date(prevReq.manualTime).toISOString();
+
+                        const targetLogRef = doc(db, 'attendance_logs', prevReq.originalLogId);
+                        transaction.update(targetLogRef, {
+                            clock_out: closeTimeISO,
+                            status: 'approved-extra', // mark as manually closed by admin
+                            note: `Admin Approved Stale Close Ref: ${prevReq.documentNo}`,
                             updated_at: new Date().toISOString()
                         });
                     }

@@ -112,10 +112,10 @@ export const PayrollRepo = {
         const rangeStart = dayjs.tz(startDay, COMPANY_TIMEZONE).startOf('day');
         // แปลง endDay (เช่น "2026-02-15") เป็นจุดสิ้นสุดของวันนั้นในเวลาประเทศไทย
         const rangeEnd = dayjs.tz(endDay, COMPANY_TIMEZONE).endOf('day');
-        
+
         const newLogs = allNewLogs.filter(log => {
             if (!log.clock_in) return false;
-            
+
             // 1. Normalize ข้อมูลให้เป็น dayjs object (รองรับทั้ง Timestamp และ String)
             let clockInDayjs;
             if (log.clock_in.toDate) {
@@ -128,12 +128,12 @@ export const PayrollRepo = {
 
             // 2. เปรียบเทียบเวลาโดยใช้ .isBetween() อย่างปลอดภัย
             // '[]' หมายถึง inclusive (นับรวมขอบเขตหัวท้ายด้วย)
-            return clockInDayjs.isBetween(rangeStart, rangeEnd, 'millisecond', '[]'); 
+            return clockInDayjs.isBetween(rangeStart, rangeEnd, 'millisecond', '[]');
         });
 
-        console.log('Payroll createCycle:', { 
-            legacy: legacyLogs.length, 
-            new: newLogs.length, 
+        console.log('Payroll createCycle:', {
+            legacy: legacyLogs.length,
+            new: newLogs.length,
             totalNew: allNewLogs.length,
             dateRange: { startDay, endDay },
             timezoneInfo: { companyTimezone: COMPANY_TIMEZONE, rangeStart: rangeStart.format(), rangeEnd: rangeEnd.format() },
@@ -279,6 +279,7 @@ export const PayrollRepo = {
             let workDays = 0;
             let totalOtHours = 0;
             let totalLateMinutes = 0;
+            let totalDeductionAmount = 0;
 
             const enrichedLogs = empLogs.map(log => {
                 let logIncome = 0;
@@ -310,6 +311,7 @@ export const PayrollRepo = {
                     const fine = PayrollCalculator.calculateLateDeduction(log.lateMinutes, deductionConfig);
                     logDeduction += fine;
                     if (fine > 0) logNotes.push(`สาย ${log.lateMinutes} นาที`);
+                    totalDeductionAmount += fine;
                 }
 
                 return {
@@ -336,11 +338,8 @@ export const PayrollRepo = {
                 otPay = totalOtHours * hourlyRate * 1.5;
             }
 
-            // Deduction Calculation (Total Level - respects Max Cap)
-            let deductionAmount = 0;
-            if (cycleData.syncDeduct && totalLateMinutes > 0) {
-                deductionAmount = PayrollCalculator.calculateLateDeduction(totalLateMinutes, deductionConfig);
-            }
+            // Deduction Calculation (Sum of Daily Deductions respects daily caps / grace periods)
+            let deductionAmount = totalDeductionAmount;
 
             // Tax & SSO: Only if profile enabled
             let sso = 0;
@@ -589,31 +588,31 @@ export const PayrollRepo = {
         // 1. Check if cycle is locked (already paid)
         const cycleRef = doc(db, 'payroll_cycles', cycleId);
         const cycleSnap = await getDoc(cycleRef);
-        
+
         if (!cycleSnap.exists()) {
             throw new Error('Cycle not found');
         }
-        
+
         const cycleData = cycleSnap.data();
-        
+
         // 🚨 CRITICAL: Prevent rebuild if cycle is locked or paid
         if (cycleData.status === 'locked') {
             throw new Error('Cannot rebuild locked cycle - payments have been processed');
         }
-        
+
         // 2. Get all payslips for this cycle to delete them
         const payslipsQ = query(collection(db, 'payslips'), where('cycleId', '==', cycleId));
         const payslipsSnap = await getDocs(payslipsQ);
-        
+
         // 3. Delete all existing payslips
         const batch = writeBatch(db);
         payslipsSnap.forEach(doc => {
             batch.delete(doc.ref);
         });
         await batch.commit();
-        
+
         console.log(`Deleted ${payslipsSnap.size} existing payslips for rebuild`);
-        
+
         // 4. Recreate cycle with same parameters
         const [year, month] = cycleData.month.split('-').map(Number);
         const cycleParams = {
@@ -621,7 +620,7 @@ export const PayrollRepo = {
             period: cycleData.period,
             target: cycleData.target || 'all'
         };
-        
+
         // 5. Call createCycle with same parameters
         return await this.createCycle(cycleData.companyId, cycleParams);
     },
@@ -634,21 +633,21 @@ export const PayrollRepo = {
         const cycleRef = doc(db, 'payroll_cycles', cycleId);
         const cycleSnap = await getDoc(cycleRef);
         const cycleData = cycleSnap.data();
-        
+
         const payslipsQ = query(collection(db, 'payslips'), where('cycleId', '==', cycleId));
         const payslipsSnap = await getDocs(payslipsQ);
-        
+
         const issues = [];
         const expectedDays = this._getExpectedDays(cycleData.startDate, cycleData.endDate);
-        
+
         payslipsSnap.forEach(payslipDoc => {
             const payslip = payslipDoc.data();
             const logs = payslip.logsSnapshot || [];
-            
+
             // ตรวจสอบว่ามีข้อมูลทุกวันในช่วงเวลา
             const actualDays = logs.map(l => l.date);
             const missingDays = expectedDays.filter(day => !actualDays.includes(day));
-            
+
             if (missingDays.length > 0) {
                 issues.push({
                     employee: payslip.employeeSnapshot?.name,
@@ -660,7 +659,7 @@ export const PayrollRepo = {
                 });
             }
         });
-        
+
         return {
             isValid: issues.length === 0,
             totalEmployees: payslipsSnap.size,
@@ -685,13 +684,13 @@ export const PayrollRepo = {
         const days = [];
         const start = dayjs(startDate);
         const end = dayjs(endDate);
-        
+
         let current = start;
         while (current.isBefore(end) || current.isSame(end, 'day')) {
             days.push(current.format('YYYY-MM-DD'));
             current = current.add(1, 'day');
         }
-        
+
         return days;
     },
 
