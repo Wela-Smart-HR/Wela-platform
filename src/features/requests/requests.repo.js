@@ -229,8 +229,10 @@ export const requestsRepo = {
                         const logData = {
                             employee_id: prevReq.userId,
                             company_id: prevReq.companyId,
+                            shift_date: effectiveDate,
                             status: 'adjusted',
                             late_minutes: 0,
+                            work_minutes: 0,
                             note: `Approved Ref: ${prevReq.documentNo}`,
                             updated_at: new Date().toISOString()
                         };
@@ -283,9 +285,12 @@ export const requestsRepo = {
                         transaction.set(newLogRef, {
                             employee_id: prevReq.userId,
                             company_id: prevReq.companyId,
+                            shift_date: effectiveDate,
                             clock_in: clockInISO,
                             clock_out: clockOutISO,
                             status: 'approved-extra',
+                            work_minutes: 0,
+                            late_minutes: 0,
                             note: `Approved Unscheduled Work Ref: ${prevReq.documentNo}`,
                             updated_at: new Date().toISOString()
                         });
