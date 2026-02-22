@@ -21,6 +21,10 @@ const AttendanceMiniMap = React.lazy(() => import('../../components/employee/Att
 const LocationHelpModal = React.lazy(() => import('../../components/employee/LocationHelpModal'));
 import LiveClock from '../../components/employee/LiveClock';
 import HoldButton from '../../components/employee/HoldButton';
+import RetroRequestModal from '../../components/employee/Modals/RetroRequestModal';
+import UnscheduledWorkModal from '../../components/employee/Modals/UnscheduledWorkModal';
+import CloseShiftModal from '../../components/employee/Modals/CloseShiftModal';
+import ShiftSelectionModal from '../../components/employee/Modals/ShiftSelectionModal';
 
 // Utilities
 const formatDateForInput = (dateObj) => {
@@ -145,7 +149,7 @@ export default function TimeAttendance() {
     // ===================================================
     // ⏰ Actions & Logics
     // ===================================================
-    
+
     // Load Master Shifts
     useEffect(() => {
         if (companyConfig?.shifts) {
@@ -170,7 +174,7 @@ export default function TimeAttendance() {
         // ถ้าตอกเข้า และไม่มีกะ ให้เด้ง Modal เลือกกะก่อน
         if (isClockInAction && !todaySchedule) {
             setShowShiftSelectModal(true);
-            return; 
+            return;
         }
 
         performClockAction(isClockInAction ? 'clock-in' : 'clock-out');
@@ -217,14 +221,14 @@ export default function TimeAttendance() {
         setShowShiftSelectModal(false);
         setSelectedShiftId('');
         setClocking(true);
-        
+
         try {
-            const result = await hookClockIn({ 
-                isUnscheduled: true, 
+            const result = await hookClockIn({
+                isUnscheduled: true,
                 requestedShiftId: selectedShiftId,
-                scheduleData: null 
+                scheduleData: null
             });
-            
+
             if (result.success) {
                 if (result.offline) {
                     dialog.showAlert("ไม่มีสัญญาณอินเทอร์เน็ต\nบันทึกข้อมูลในเครื่องแล้ว", "Offline Mode", "warning");
@@ -299,7 +303,7 @@ export default function TimeAttendance() {
         }
         setClocking(true);
         try {
-            if(typeof closeStaleShift === 'function') {
+            if (typeof closeStaleShift === 'function') {
                 await closeStaleShift(staleCheckIn?.id, closeShiftForm.outTime, closeShiftForm.reason);
             }
             setIsCloseShiftModalOpen(false);
@@ -316,7 +320,7 @@ export default function TimeAttendance() {
     // ===================================================
     return (
         <div className="flex flex-col min-h-full bg-[#FAFAFA] font-sans">
-            
+
             {/* --- Header Section --- */}
             <div className="px-6 pt-12 pb-4 flex justify-between items-end shrink-0 relative z-20">
                 <div>
@@ -344,7 +348,7 @@ export default function TimeAttendance() {
             {/* === TAB 1: SCAN === */}
             {activeTab === 'scan' && (
                 <div className="relative z-10 px-6 flex-1 flex flex-col items-center justify-start gap-8 pt-8 pb-24 animate-fade-in">
-                    
+
                     {/* Shift Info & Status */}
                     <div className="flex items-center justify-center gap-2 w-full">
                         {todaySchedule ? (
@@ -497,141 +501,42 @@ export default function TimeAttendance() {
 
             {/* === MODALS PORTALS === */}
 
-            {/* Retro Request Modal */}
-            {isRetroModalOpen && createPortal(
-                <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center font-sans">
-                    <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={() => setIsRetroModalOpen(false)}></div>
-                    <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col max-h-[90vh] animate-slide-up overflow-hidden">
-                        <div className="px-6 pt-6 pb-4 flex justify-between items-center shrink-0">
-                            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Timer weight="duotone" className="text-blue-500" /> Request Adjustment</h2>
-                            <button onClick={() => setIsRetroModalOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 flex items-center justify-center"><X weight="bold" /></button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
-                            <div className="flex gap-4">
-                                <div className="flex-1"><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Time In</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.timeIn} onChange={(e) => setRetroForm({ ...retroForm, timeIn: e.target.value })} /></div>
-                                <div className="flex-1"><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Time Out</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.timeOut} onChange={(e) => setRetroForm({ ...retroForm, timeOut: e.target.value })} /></div>
-                            </div>
-                            <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Date</label><input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.date} onChange={(e) => setRetroForm({ ...retroForm, date: e.target.value })} /></div>
-                            <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Reason</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm text-slate-800 outline-none resize-none h-24 focus:ring-2 focus:ring-blue-100" placeholder="Why are you adjusting?" value={retroForm.reason} onChange={(e) => setRetroForm({ ...retroForm, reason: e.target.value })}></textarea></div>
-                            <div className="pt-4 pb-4"><button onClick={handleRetroSubmit} disabled={clocking} className="w-full bg-[#007AFF] text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-blue-500/20 active:scale-95 transition">Send Request</button></div>
-                        </div>
-                    </div>
-                </div>, document.body
-            )}
+            <RetroRequestModal
+                isOpen={isRetroModalOpen}
+                onClose={() => setIsRetroModalOpen(false)}
+                form={retroForm}
+                setForm={setRetroForm}
+                onSubmit={handleRetroSubmit}
+                isSubmitting={clocking}
+            />
 
-            {/* Unscheduled Work Modal */}
-            {isUnscheduledModalOpen && createPortal(
-                <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center font-sans">
-                    <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={() => setIsUnscheduledModalOpen(false)}></div>
-                    <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col max-h-[90vh] animate-slide-up overflow-hidden">
-                        <div className="px-6 pt-6 pb-4 flex justify-between items-center shrink-0">
-                            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Briefcase weight="duotone" className="text-amber-500" /> ขอรับรองวันทำงาน</h2>
-                            <button onClick={() => setIsUnscheduledModalOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 flex items-center justify-center"><X weight="bold" /></button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
-                            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex gap-3">
-                                <WarningCircle weight="fill" size={20} className="text-amber-500 shrink-0 mt-0.5" />
-                                <p className="text-xs text-amber-700 leading-relaxed">คุณไม่มีกะงานสำหรับวันนี้ กรุณากรอกเวลาที่ทำงานจริง แล้วส่งคำขอให้ Admin อนุมัติ</p>
-                            </div>
-                            <div>
-                                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">วันที่ <span className="text-red-400">*</span></label>
-                                <input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-100" value={unscheduledForm.date} onChange={(e) => setUnscheduledForm({ ...unscheduledForm, date: e.target.value })} />
-                            </div>
-                            <div className="flex gap-4">
-                                <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">เวลาเข้างาน <span className="text-red-400">*</span></label>
-                                    <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-100" value={unscheduledForm.timeIn} onChange={(e) => setUnscheduledForm({ ...unscheduledForm, timeIn: e.target.value })} />
-                                </div>
-                                <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">เวลาออกงาน <span className="text-red-400">*</span></label>
-                                    <input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-amber-100" value={unscheduledForm.timeOut} onChange={(e) => setUnscheduledForm({ ...unscheduledForm, timeOut: e.target.value })} />
-                                </div>
-                            </div>
-                            <div>
-                                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">เหตุผล</label>
-                                <textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm text-slate-800 outline-none resize-none h-24 focus:ring-2 focus:ring-amber-100" placeholder="เช่น มาทำงานด่วน" value={unscheduledForm.reason} onChange={(e) => setUnscheduledForm({ ...unscheduledForm, reason: e.target.value })}></textarea>
-                            </div>
-                            <div className="pt-4 pb-4">
-                                <button onClick={handleUnscheduledWorkSubmit} disabled={clocking} className="w-full bg-amber-500 text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-amber-500/20 active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2">
-                                    {clocking ? <Crosshair className="animate-spin" size={18} /> : <CheckCircle weight="bold" size={18} />} ส่งคำขออนุมัติ
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>, document.body
-            )}
+            <UnscheduledWorkModal
+                isOpen={isUnscheduledModalOpen}
+                onClose={() => setIsUnscheduledModalOpen(false)}
+                form={unscheduledForm}
+                setForm={setUnscheduledForm}
+                onSubmit={handleUnscheduledWorkSubmit}
+                isSubmitting={clocking}
+            />
 
-            {/* Close Shift Modal */}
-            {isCloseShiftModalOpen && createPortal(
-                <div className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center font-sans">
-                    <div className="absolute inset-0 bg-black/40 backdrop-blur-md transition-opacity" onClick={() => setIsCloseShiftModalOpen(false)}></div>
-                    <div className="bg-white w-full max-w-sm rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col p-6 animate-slide-up">
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><SignOut weight="duotone" className="text-rose-500" /> Close Shift</h2>
-                            <button onClick={() => setIsCloseShiftModalOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 flex items-center justify-center"><X weight="bold" /></button>
-                        </div>
-                        <div className="space-y-4 mb-6">
-                            <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Date</label><input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800" value={closeShiftForm.date} onChange={(e) => setCloseShiftForm({ ...closeShiftForm, date: e.target.value })} /></div>
-                            <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Actual Clock Out Time</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800" value={closeShiftForm.outTime} onChange={(e) => setCloseShiftForm({ ...closeShiftForm, outTime: e.target.value })} /></div>
-                            <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Reason</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-800 h-20 resize-none" placeholder="ทำไมถึงลืมตอกบัตรออก?" value={closeShiftForm.reason} onChange={(e) => setCloseShiftForm({ ...closeShiftForm, reason: e.target.value })}></textarea></div>
-                        </div>
-                        <button onClick={handleCloseShiftSubmit} disabled={clocking} className="w-full bg-rose-500 text-white py-3.5 rounded-xl font-bold text-base shadow-lg shadow-rose-500/20 active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2">
-                            {clocking ? <Crosshair className="animate-spin" /> : <CheckCircle weight="bold" />} Confirm Close Shift
-                        </button>
-                    </div>
-                </div>, document.body
-            )}
+            <CloseShiftModal
+                isOpen={isCloseShiftModalOpen}
+                onClose={() => setIsCloseShiftModalOpen(false)}
+                form={closeShiftForm}
+                setForm={setCloseShiftForm}
+                onSubmit={handleCloseShiftSubmit}
+                isSubmitting={clocking}
+            />
 
-            {/* Shift Selection Modal (หน้าต่างเลือกกะหน้างาน) */}
-            {showShiftSelectModal && createPortal(
-                <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center font-sans">
-                    <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={() => setShowShiftSelectModal(false)}></div>
-                    <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col max-h-[90vh] animate-slide-up overflow-hidden">
-                        <div className="px-6 pt-6 pb-4 flex justify-between items-center shrink-0">
-                            <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                                <Briefcase weight="duotone" className="text-amber-500" /> เลือกกะการทำงาน
-                            </h2>
-                            <button onClick={() => setShowShiftSelectModal(false)} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 flex items-center justify-center"><X weight="bold" /></button>
-                        </div>
-                        <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
-                            <div className="bg-amber-50 border border-amber-100 rounded-2xl p-4 flex gap-3">
-                                <WarningCircle weight="fill" size={20} className="text-amber-500 shrink-0 mt-0.5" />
-                                <p className="text-xs text-amber-700 leading-relaxed">คุณกำลังจะเข้างานนอกตาราง กรุณาเลือกกะการทำงานที่ได้รับมอบหมาย เพื่อส่งให้ Admin อนุมัติ</p>
-                            </div>
-                            <div>
-                                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-3 block">เลือกกะ <span className="text-red-400">*</span></label>
-                                <div className="space-y-2">
-                                    {masterShifts.length === 0 ? (
-                                        <div className="text-center py-8 text-slate-400 text-xs"><Briefcase size={32} className="mx-auto mb-2 opacity-50" /><p>ไม่พบข้อมูลกะงาน กรุณาติดต่อ Admin</p></div>
-                                    ) : (
-                                        masterShifts.map((shift) => (
-                                            <button key={shift.id} onClick={() => setSelectedShiftId(shift.id)} className={`w-full p-4 rounded-xl border-2 transition-all text-left ${selectedShiftId === shift.id ? 'border-amber-500 bg-amber-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}>
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-3 h-10 rounded-full bg-slate-500"></div>
-                                                        <div>
-                                                            <p className="text-sm font-bold text-slate-800">{shift.name}</p>
-                                                            <p className="text-xs text-slate-500 font-mono mt-0.5">{shift.startTime} - {shift.endTime} น.</p>
-                                                        </div>
-                                                    </div>
-                                                    <div className={`w-5 h-5 rounded-full border-2 transition-all ${selectedShiftId === shift.id ? 'border-amber-500 bg-amber-500' : 'border-slate-300'}`}>
-                                                        {selectedShiftId === shift.id && <div className="w-full h-full rounded-full bg-white scale-50"></div>}
-                                                    </div>
-                                                </div>
-                                            </button>
-                                        ))
-                                    )}
-                                </div>
-                            </div>
-                            <div className="pt-4 pb-4">
-                                <button onClick={() => { if(!selectedShiftId){dialog.showAlert("กรุณาเลือกกะ", "เตือน", "warning"); return;} proceedWithUnscheduledClockIn(selectedShiftId);}} disabled={clocking || !selectedShiftId} className="w-full bg-amber-500 text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-amber-500/20 active:scale-95 transition disabled:opacity-50 flex items-center justify-center gap-2">
-                                    {clocking ? <Crosshair className="animate-spin" size={18} /> : <CheckCircle weight="bold" size={18} />} ยืนยันเข้างาน
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>, document.body
-            )}
+            <ShiftSelectionModal
+                isOpen={showShiftSelectModal}
+                onClose={() => setShowShiftSelectModal(false)}
+                masterShifts={masterShifts}
+                selectedShiftId={selectedShiftId}
+                setSelectedShiftId={setSelectedShiftId}
+                onSubmit={(id) => proceedWithUnscheduledClockIn(id)}
+                isSubmitting={clocking}
+            />
 
             {/* Greeting Toast */}
             {showGreetingPopup && (
