@@ -2,10 +2,12 @@ import React, { useState } from 'react';
 import { useAuth } from '@/features/auth/useAuth';
 import { usePayslip } from '@/features/payroll/usePayslip';
 import { formatMoney } from '@/shared/utils/money';
+import { db } from '@/shared/lib/firebase'; // ✅ เพิ่ม Import db
+import { doc, updateDoc, serverTimestamp } from 'firebase/firestore'; // ✅ เพิ่ม Import คำสั่ง Firestore
 import {
     CaretLeft, CaretRight, DownloadSimple,
     TrendUp, TrendDown, Wallet, CalendarBlank,
-    Eye, EyeSlash, FilePdf, Spinner, Buildings
+    Eye, EyeSlash, FilePdf, Spinner, CheckCircle // ✅ เพิ่มไอคอน CheckCircle
 } from '@phosphor-icons/react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -14,7 +16,10 @@ export default function Payslip() {
     const { currentUser } = useAuth();
     const [currentDate, setCurrentDate] = useState(new Date());
     const [isDownloading, setIsDownloading] = useState(false);
+    const [isAcknowledging, setIsAcknowledging] = useState(false); // State สำหรับปุ่มกดยืนยัน
     const [showAmount, setShowAmount] = useState(false);
+    // ✅ 1. เพิ่ม State เพื่อเก็บสถานะการกดในหน้านี้ชั่วคราว
+    const [isLocalAcknowledged, setIsLocalAcknowledged] = useState(false);
 
     // Use payslip hook
     const { payslip: payslipData, loading } = usePayslip(currentUser?.uid, currentDate);
@@ -43,7 +48,29 @@ export default function Payslip() {
         setCurrentDate(newDate);
     };
 
-    // ✅ ฟังก์ชันสร้าง PDF (ฉบับ A4)
+    // ฟังก์ชันกดยืนยันยอดเงิน (พนักงานยอมรับสลิป)
+    const handleAcknowledge = async () => {
+        if (!payslipData?.id) return;
+        setIsAcknowledging(true);
+        try {
+            const payslipRef = doc(db, 'payslips', payslipData.id);
+            await updateDoc(payslipRef, {
+                isAcknowledged: true,
+                acknowledgedAt: serverTimestamp(),
+                paymentStatus: payslipData.paymentStatus === 'locked' ? 'acknowledged' : payslipData.paymentStatus // เปลี่ยนสถานะถ้ายืนยันแล้ว
+            });
+            // สั่งให้ State เปลี่ยนเป็น true ทันทีที่เซฟผ่าน!
+            setIsLocalAcknowledged(true); 
+
+        } catch (error) {
+            console.error("Acknowledge Error:", error);
+            alert("ไม่สามารถบันทึกการยืนยันได้ กรุณาลองใหม่");
+        } finally {
+            setIsAcknowledging(false);
+        }
+    };
+
+    // ฟังก์ชันสร้าง PDF (ฉบับ A4)
     const handleDownloadPDF = async () => {
         setIsDownloading(true);
 
@@ -94,7 +121,7 @@ export default function Payslip() {
     return (
         <div className="flex flex-col h-full bg-[#FAFAFA] font-sans text-[#1E293B]">
 
-            {/* 📱 ส่วนแสดงผลบนหน้าจอ (Mobile UI) - เหมือนเดิมเป๊ะ */}
+            {/* 📱 ส่วนแสดงผลบนหน้าจอ (Mobile UI) */}
             <header className="px-6 pt-6 pb-4 bg-white/80 backdrop-blur-md sticky top-0 z-20 border-b border-slate-100">
                 <div className="flex justify-between items-center mb-4">
                     <div>
@@ -123,7 +150,7 @@ export default function Payslip() {
                                 <button onClick={() => setShowAmount(!showAmount)} className="text-slate-400 hover:text-white transition">{showAmount ? <Eye size={18} weight="bold" /> : <EyeSlash size={18} weight="bold" />}</button>
                             </div>
                             <div className="mb-4 relative z-10 h-10 flex items-center">{showAmount ? <h2 className="text-4xl font-bold tracking-tight">฿{formatMoney(payslipData.financials?.net || 0)}</h2> : <h2 className="text-4xl font-bold tracking-widest text-slate-500 mt-2">••••••</h2>}</div>
-                            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-lg w-fit border border-white/5"><div className={`w-1.5 h-1.5 rounded-full ${payslipData.paymentStatus === 'paid' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : 'bg-orange-400'}`}></div><span className="text-[10px] font-bold tracking-wide text-slate-200">{payslipData.paymentStatus === 'paid' ? 'โอนจ่ายเรียบร้อย' : 'รอตรวจสอบ'}</span></div>
+                            <div className="flex items-center gap-2 bg-white/10 backdrop-blur-md px-3 py-1.5 rounded-lg w-fit border border-white/5"><div className={`w-1.5 h-1.5 rounded-full ${payslipData.paymentStatus === 'paid' ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]' : (payslipData.isAcknowledged || isLocalAcknowledged) ? 'bg-blue-400' : 'bg-orange-400'}`}></div><span className="text-[10px] font-bold tracking-wide text-slate-200">{payslipData.paymentStatus === 'paid' ? 'โอนจ่ายเรียบร้อย' : (payslipData.isAcknowledged || isLocalAcknowledged) ? 'ยืนยันยอดแล้ว' : 'รอตรวจสอบ'}</span></div>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3">
@@ -139,19 +166,25 @@ export default function Payslip() {
                 )}
             </main>
 
-            {/* Button */}
+            {/* Button Section (Gatekeeping Logic) */}
             {payslipData && (
                 <div className="p-6 pt-2 bg-[#FAFAFA]">
-                    <button onClick={handleDownloadPDF} disabled={isDownloading} className="w-full bg-white border border-slate-200 text-slate-500 py-3 rounded-xl text-xs font-bold shadow-sm hover:bg-slate-50 hover:text-blue-600 active:scale-95 transition flex items-center justify-center gap-2 disabled:opacity-50">
-                        {isDownloading ? <><Spinner className="animate-spin" size={16} /> กำลังสร้าง PDF...</> : <><DownloadSimple size={16} weight="bold" /> ดาวน์โหลดสลิป (A4)</>}
-                    </button>
+                    {/* เช็คเงื่อนไขเพิ่ม isLocalAcknowledged */}
+                    {(payslipData.isAcknowledged || isLocalAcknowledged) ? (
+                        <button onClick={handleDownloadPDF} disabled={isDownloading} className="w-full bg-white border border-slate-200 text-slate-500 py-3 rounded-xl text-xs font-bold shadow-sm hover:bg-slate-50 hover:text-blue-600 active:scale-95 transition flex items-center justify-center gap-2 disabled:opacity-50">
+                            {isDownloading ? <><Spinner className="animate-spin" size={16} /> กำลังสร้าง PDF...</> : <><DownloadSimple size={16} weight="bold" /> ดาวน์โหลดสลิป (A4)</>}
+                        </button>
+                    ) : (
+                        <button onClick={handleAcknowledge} disabled={isAcknowledging} className="w-full bg-blue-600 text-white py-3 rounded-xl text-xs font-bold shadow-lg shadow-blue-500/30 hover:bg-blue-700 active:scale-95 transition flex items-center justify-center gap-2 disabled:opacity-50">
+                            {isAcknowledging ? <><Spinner className="animate-spin" size={16} /> กำลังบันทึก...</> : <><CheckCircle size={18} weight="bold" /> ตรวจสอบแล้ว ยืนยันยอดเงิน</>}
+                        </button>
+                    )}
                 </div>
             )}
 
-            {/* 📄 ส่วนลับ: A4 Formal Template (ซ่อนไว้ด้วย position absolute) */}
+            {/* ส่วนลับ: A4 Formal Template (ซ่อนไว้ด้วย position absolute) */}
             {payslipData && (
                 <div id="formal-payslip-a4" style={{ position: 'absolute', top: '-9999px', left: '-9999px', width: '210mm', minHeight: '297mm', backgroundColor: 'white', padding: '15mm', color: '#1f2937', fontFamily: 'sans-serif' }}>
-
                     {/* 1. Header */}
                     <div className="flex justify-between items-start border-b-2 border-slate-800 pb-6 mb-8">
                         <div className="flex gap-4 items-center">
@@ -181,7 +214,8 @@ export default function Payslip() {
                         <div className="text-right">
                             <p className="text-slate-400 text-xs font-bold uppercase mb-1">วันที่จ่าย (Payment Date)</p>
                             <p className="font-bold text-lg text-slate-900">{payslipData.updatedAt ? formatDate(payslipData.updatedAt.toDate()) : '-'}</p>
-                            <p className="text-slate-600">สถานะ: {payslipData.paymentStatus === 'paid' ? 'โอนจ่ายแล้ว (Paid)' : 'รอตรวจสอบ'}</p>
+                            {/* ✅ อัปเดตสถานะในใบปริ้นท์ด้วย */}
+                            <p className="text-slate-600">สถานะ: {payslipData.paymentStatus === 'paid' ? 'โอนจ่ายแล้ว (Paid)' : (payslipData.isAcknowledged || isLocalAcknowledged) ? 'ยืนยันยอดแล้ว' : 'รอตรวจสอบ'}</p>
                         </div>
                     </div>
 
@@ -245,7 +279,6 @@ export default function Payslip() {
 
                 </div>
             )}
-
         </div>
     );
 }
