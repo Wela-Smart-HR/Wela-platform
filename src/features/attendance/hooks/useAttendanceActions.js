@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { attendanceService, attendanceRepo } from '../../../di/attendanceDI';
 import { offlineService } from '../offline.service';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { addDoc, collection, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../shared/lib/firebase';
 
 /**
@@ -268,21 +268,43 @@ export function useAttendanceActions({
 
     /**
      * สั่งปิดกะแบบ Manual (สำหรับเคสลืมออกงาน)
+     * 🛡️ SECURITY: สร้างคำขอให้ admin อนุมัติด้วย (กันกระสุน)
      */
     const closeStaleShift = useCallback(async (logId, time, reason) => {
         setLoading(true);
         try {
+            // 1. สร้างคำขอให้ admin อนุมัติก่อน
+            const requestRef = await addDoc(collection(db, "requests"), {
+                companyId,
+                userId,
+                userName: currentUser?.name || 'Unknown',
+                type: 'stale-shift-close', // 🆕 ประเภทใหม่สำหรับปิดกะเก่า
+                status: 'pending',
+                originalLogId: logId,
+                manualTime: time.toISOString(),
+                reason: reason,
+                createdAt: serverTimestamp()
+            });
+
+            // 2. บันทึกข้อมูลไว้ใน attendance_logs แต่ยังไม่ active (รออนุมัติ)
             const result = await attendanceService.closeStaleShift(userId, logId, time, reason);
             if (result.isFailure) throw new Error(result.error);
+            
+            // 3. อัปเดตคำขอด้วยข้อมูลที่บันทึก
+            await updateDoc(requestRef, {
+                attendanceLogId: result.getValue().id,
+                processedAt: serverTimestamp()
+            });
+
             if (onSuccess) await onSuccess();
-            return { success: true };
+            return { success: true, requestId: requestRef.id };
         } catch (err) {
             console.error('[Action] CloseStaleShift Error:', err);
             return { success: false, message: err.message };
         } finally {
             setLoading(false);
         }
-    }, [userId, onSuccess]);
+    }, [userId, companyId, currentUser, onSuccess]);
 
     return {
         loading,
