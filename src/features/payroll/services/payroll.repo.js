@@ -16,7 +16,7 @@ dayjs.extend(isBetween);
 const COMPANY_TIMEZONE = 'Asia/Bangkok';
 
 /**
- * คำนวณเวลา OT จริงๆ โดยตรวจสอบเวลาออกงานจริง
+ * คำนวณเวลา OT จริงๆ โดยตรวจสอบเวลาออกงานจริง (รองรับกะข้ามคืน)
  * @param {string} checkIn - เวลาเข้างาน (HH:mm)
  * @param {string} checkOut - เวลาออกงาน (HH:mm) 
  * @param {string} shiftEnd - เวลาออกกะ (HH:mm)
@@ -35,19 +35,30 @@ function calculateActualOTHours(checkIn, checkOut, shiftEnd, scheduledOTHours) {
     };
 
     const checkInMinutes = toMinutes(checkIn);
-    const checkOutMinutes = toMinutes(checkOut);
-    const shiftEndMinutes = toMinutes(shiftEnd);
+    let checkOutMinutes = toMinutes(checkOut);
+    let shiftEndMinutes = toMinutes(shiftEnd);
+
+    // 🚨 ARCHITECTURE FIX: จัดการเคสข้ามคืน (Cross-day Shift)
+    // 1. ถ้าเวลาออกงานน้อยกว่าเวลาเข้างาน แปลว่าข้ามไปอีกวัน ให้บวก 24 ชม. (1440 นาที)
+    if (checkOutMinutes < checkInMinutes) {
+        checkOutMinutes += 1440;
+    }
+    
+    // 2. ถ้าเวลาจบกะน้อยกว่าเวลาเข้างาน แปลว่ากะงานคร่อมวัน ให้บวก 24 ชม. (1440 นาที)
+    if (shiftEndMinutes < checkInMinutes) {
+        shiftEndMinutes += 1440;
+    }
 
     // ตรวจสอบว่าออกงานเลยเวลาออกกะหรือไม่
     if (checkOutMinutes <= shiftEndMinutes) {
-        return 0; // ไม่มี OT จริง
+        return 0; // ออกก่อน หรือ ออกตรงเวลาพอดี ไม่มี OT
     }
 
     // คำนวณเวลา OT จริง (นาที)
     const actualOTMinutes = checkOutMinutes - shiftEndMinutes;
     const actualOTHours = actualOTMinutes / 60;
 
-    // จำกัดไม่ให้เกินเวลา OT ที่กำหนดใน schedule
+    // จำกัดไม่ให้เกินเวลา OT ที่ระบุมา (ป้องกันพนักงานนั่งแช่เอา OT)
     return Math.min(actualOTHours, scheduledOTHours);
 }
 
@@ -369,6 +380,7 @@ export const PayrollRepo = {
             // STEP 2: Calculate totals & enrich each day
             let workDays = 0;
             let totalOtHours = 0;
+            let totalOtPay = 0; // ✅ เพิ่มตัวแปรนี้เพื่อเก็บยอดเงิน OT ที่แท้จริง
             let totalIncentive = 0;
             let totalLateMinutes = 0;
             let totalDeductionAmount = 0;
@@ -394,16 +406,32 @@ export const PayrollRepo = {
                 // 2. OT Income (จาก schedules - ตรวจสอบกับเวลาเข้า-ออกจริง)
                 if (log.scheduleOT && log.scheduleOT.hasOT && log.scheduleOT.otHours > 0) {
                     // ใช้เวลาเข้า-ออกจริงจาก attendance มาตรวจสอบ OT
-                    // shiftEnd คือเวลาออกกะมาตรฐาน (จาก schedule)
-                    const shiftEnd = log.scheduleEndTime; // เวลาออกกะมาตรฐานจาก schedule
+                    // shiftEnd คือเวลาออกกะมาตรฐาน - ถ้าไม่มี scheduleEndTime ให้ใช้เวลามาตรฐาน 18:00
+                    const shiftEnd = log.scheduleEndTime || "18:00"; // ใช้เวลาออกกะมาตรฐานถ้าไม่มี scheduleEndTime
+                    
+                    console.log(`[OT Debug] Date: ${log.date}`, {
+                        hasOT: log.scheduleOT.hasOT,
+                        otHours: log.scheduleOT.otHours,
+                        otType: log.scheduleOT.otType,
+                        checkIn: log.checkIn,
+                        checkOut: log.checkOut,
+                        scheduleEndTime: log.scheduleEndTime,
+                        shiftEnd: shiftEnd, // เพิ่ม shiftEnd ที่ใช้จริง
+                        hourlyRate: hourlyRate
+                    });
                     
                     // คำนวณเวลา OT จริงๆ โดยตรวจสอบเวลาออกงานจริง
                     const actualOTHours = calculateActualOTHours(
                         log.checkIn,      // เวลาเข้าจริงจาก attendance
                         log.checkOut,     // เวลาออกจริงจาก attendance  
-                        shiftEnd,        // เวลาออกกะมาตรฐานจาก schedule
+                        shiftEnd,        // เวลาออกกะมาตรฐาน (18:00 ถ้าไม่มี scheduleEndTime)
                         log.scheduleOT.otHours  // OT ที่กำหนดใน schedule
                     );
+                    
+                    console.log(`[OT Debug] Result:`, {
+                        actualOTHours: actualOTHours,
+                        reason: actualOTHours === 0 ? 'ออกงานไม่เกินเวลาหรือข้อมูลไม่ครบ' : 'มี OT'
+                    });
                     
                     if (actualOTHours > 0) {
                         // หา OT type จาก company config
@@ -412,7 +440,9 @@ export const PayrollRepo = {
                         const otAmt = actualOTHours * hourlyRate * multiplier;
                         logIncome += otAmt;
                         logNotes.push(`OT ${actualOTHours.toFixed(1)}h (x${multiplier}, กำหนด ${log.scheduleOT.otHours}h)`);
+                        
                         totalOtHours += actualOTHours;
+                        totalOtPay += otAmt; // ✅ ARCHITECTURE FIX: สะสมยอดเงินจาก Rate จริงที่นี่!
                     } else {
                         logNotes.push(`OT 0h (ออกงานไม่เกินเวลา, กำหนด ${log.scheduleOT.otHours}h)`);
                     }
@@ -471,10 +501,14 @@ export const PayrollRepo = {
             }
 
             // OT Calculation (Total Level)
-            let otPay = 0;
-            if (cycleData.syncOT && totalOtHours > 0) {
-                otPay = totalOtHours * hourlyRate * 1.5;
-            }
+            // 🚨 ลบของเดิมทิ้ง: 
+            // let otPay = 0;
+            // if (cycleData.syncOT && totalOtHours > 0) {
+            //     otPay = totalOtHours * hourlyRate * 1.5;
+            // }
+
+            // ✅ ใช้ของใหม่: นำยอดที่สะสมไว้มาใช้เลย
+            let otPay = cycleData.syncOT ? totalOtPay : 0;
 
             // Deduction Calculation (Sum of Daily Deductions respects daily caps / grace periods)
             let deductionAmount = totalDeductionAmount;

@@ -9,9 +9,13 @@ const calculateOTMinutes = (hours) => {
     return (h * 60).toFixed(0);
 };
 
+// ✅ ARCHITECTURE FIX: ป้องกันบั๊กคำนวณจาก String
 const calculateHourlyRate = (salary, dailyWage) => {
-    if (dailyWage > 0) return dailyWage / 8;
-    if (salary > 0) return (salary / 30) / 8;
+    const numDaily = Number(dailyWage) || 0;
+    const numSalary = Number(salary) || 0;
+    
+    if (numDaily > 0) return numDaily / 8;
+    if (numSalary > 0) return (numSalary / 30) / 8;
     return 62.5; // Fallback
 };
 
@@ -40,7 +44,10 @@ export default function ManageTodayModal({
     // Calculate Estimated Cost
     const totalEstimatedCost = safeWorkingStaff.reduce((total, staff) => {
         if (!staff) return total; // Skip invalid staff
-        const hourlyRate = calculateHourlyRate(staff.salary, staff.dailyWage);
+        // ✅ ARCHITECTURE FIX: ดักจับทั้ง userId และ employeeId
+        const targetId = staff.userId || staff.id;
+        const employee = (activeEmployees || []).find(e => e.id === targetId) || staff;
+        const hourlyRate = calculateHourlyRate(employee.salary, employee.dailyWage);
         const selectedOT = safeOtTypes.find(t => t.id === bulkForm.otType);
         const otRate = selectedOT?.rate || 1.5;
         return total + calculateOTCost(hourlyRate, otRate, bulkForm.otHours);
