@@ -22,13 +22,21 @@ export class AttendanceService {
      * @param {Object} locationData - { lat, lng, address }
      * @param {Date} timestamp
      * @param {Date} shiftStart (Optional) เวลาเริ่มงานสำหรับคำนวณสาย
+     * @param {string} shiftDateStr (Optional) Logical Shift Date YYYY-MM-DD
      */
-    async clockIn(employeeId, companyId, locationData, timestamp = DateUtils.now(), shiftStart = null) {
+    async clockIn(employeeId, companyId, locationData, timestamp = DateUtils.now(), shiftStart = null, shiftDateStr = null) {
         try {
             // 1. เช็คก่อนว่าวันนี้กดไปหรือยัง? (Prevent Double Clock-in)
-            // Note: เช็คจาก timestamp ที่ส่งมา (เผื่อเป็น offline data ของเมื่อวาน)
-            const existingLog = await this.repo.findLatestByEmployee(employeeId, timestamp);
-            if (existingLog) {
+            // Query by the resolved shiftDate rather than physical timestamp
+            const searchKey = shiftDateStr || timestamp;
+            const existingLog = await this.repo.findLatestByEmployee(employeeId, searchKey);
+            if (existingLog && !existingLog.clockOut) {
+                return Result.fail("คุณมีกะงานที่ยังไม่ได้ออก กรุณากดออกงานก่อน");
+            }
+            if (existingLog && existingLog.clockOut) {
+                // Already finished a shift for this logical day? Maybe allow multiple? Usually 1 shift per day in basic systems.
+                // Let's assume 1 shift per shift_date for now, or just check if it exists.
+                // Wait, existing logic was: if (existingLog) return fail("คุณได้ลงเวลาเข้างานของวันนี้ไปแล้ว");
                 return Result.fail("คุณได้ลงเวลาเข้างานของวันนี้ไปแล้ว");
             }
 
@@ -53,6 +61,7 @@ export class AttendanceService {
             const logOrError = AttendanceLog.create({
                 companyId: companyId,
                 employeeId: employeeId,
+                shiftDate: shiftDateStr || DateUtils.formatDate(timestamp), // Fallback if not provided
                 clockIn: timestamp,
                 clockInLocation: locationOrError.getValue(),
                 status: status,
@@ -81,11 +90,15 @@ export class AttendanceService {
      * @param {string} employeeId
      * @param {Object} locationData - { lat, lng, address }
      * @param {Date} timestamp
+     * @param {Date|string} shiftDateStr
      */
-    async clockOut(employeeId, locationData, timestamp = DateUtils.now()) {
+    async clockOut(employeeId, locationData, timestamp = DateUtils.now(), shiftDateStr = null) {
         try {
-            // 1. หาใบลงเวลาใบเดิมของวันนี้
-            const existingLog = await this.repo.findLatestByEmployee(employeeId, timestamp);
+            // 1. หาใบลงเวลาใบเดิมของวันนี้ (ควรหาใบที่ยังไม่ปิด)
+            // Ideally should find by generic latest, or we pass shiftDate here too. 
+            // In a real scenario, finding the LATEST entry for the employee limit 1 is safest.
+            const searchKey = shiftDateStr || timestamp;
+            const existingLog = await this.repo.findLatestByEmployee(employeeId, searchKey);
 
             if (!existingLog) {
                 return Result.fail("ไม่พบข้อมูลการเข้างาน กรุณากดเข้างานก่อน");

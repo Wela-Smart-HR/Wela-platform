@@ -308,8 +308,8 @@ export default function Dashboard() {
                 <div className="flex justify-between items-center mb-4 px-1">
                     <h3 className="font-bold text-base sm:text-lg text-[#0F172A]">รายการแจ้งเตือน (Notifications)</h3>
                     <div className="flex gap-2">
-                        <button className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-white transition"><Clock size={16} /></button>
-                        <button className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-white transition">...</button>
+                        <button onClick={() => navigate('/requests')} className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 shadow-sm transition active:scale-95 text-xs font-bold"><Clock size={16} /></button>
+                        <button onClick={() => navigate('/requests')} className="px-3 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-400 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 shadow-sm transition active:scale-95 text-[10px] font-bold">ดูทั้งหมด</button>
                     </div>
                 </div>
 

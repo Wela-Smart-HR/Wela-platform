@@ -255,7 +255,10 @@ export const useAdminSchedule = (initialView = 'daily') => {
         const defaultEnd = companyShifts[0]?.endTime || '18:00';
 
         setEditingShift({
-            docId: staff.id, name: staff.name, type: staff.type,
+            docId: staff.id, 
+            userId: staff.userId || staff.id, // ✅ ARCHITECTURE FIX: ส่ง userId ให้ EditShiftModal
+            name: staff.name, 
+            type: staff.type,
             startTime: staff.startTime !== '-' ? staff.startTime : defaultStart,
             endTime: staff.endTime !== '-' ? staff.endTime : defaultEnd,
             hasOT: staff.otHours > 0, otType: staff.otType || otTypes[0]?.id || '', otHours: staff.otHours || 0,
@@ -263,7 +266,9 @@ export const useAdminSchedule = (initialView = 'daily') => {
             shiftCode: staff.shiftCode || staff.name || 'WORK',
             color: staff.color || 'blue',
             note: staff.note || '',
-            selectedPreset: ''
+            selectedPreset: '',
+            salary: staff.salary || 0,        // ✅ ARCHITECTURE FIX: ส่งข้อมูลเงินเดือน
+            dailyWage: staff.dailyWage || 0   // ✅ ARCHITECTURE FIX: ส่งข้อมูลเงินรายวัน
         });
         setIsEditModalOpen(true);
     };

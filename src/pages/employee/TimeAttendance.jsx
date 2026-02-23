@@ -14,12 +14,18 @@ import {
 import { useSalaryCalculator } from '../../hooks/useSalaryCalculator';
 import { useDialog } from '../../contexts/DialogContext';
 import { useMyAttendance } from '../../features/attendance/useMyAttendance';
+import { useMyRequests } from '../../features/requests/useMyRequests';
+
+import LiveClock from '../../components/employee/LiveClock';
+import HoldButton from '../../components/employee/HoldButton';
+import RetroRequestModal from '../../components/employee/Modals/RetroRequestModal';
+import UnscheduledWorkModal from '../../components/employee/Modals/UnscheduledWorkModal';
+import CloseShiftModal from '../../components/employee/Modals/CloseShiftModal';
+import ShiftSelectionModal from '../../components/employee/Modals/ShiftSelectionModal';
 
 // Components (Lazy Load for Performance)
 const AttendanceMiniMap = React.lazy(() => import('../../components/employee/AttendanceMiniMap'));
 const LocationHelpModal = React.lazy(() => import('../../components/employee/LocationHelpModal'));
-import LiveClock from '../../components/employee/LiveClock';
-import HoldButton from '../../components/employee/HoldButton';
 
 // Utilities
 const formatDateForInput = (dateObj) => {
@@ -72,7 +78,7 @@ export default function TimeAttendance() {
         isStuck,
         staleCheckIn,
         closeStaleShift
-    } = useMyAttendance(currentUser?.uid, currentUser?.companyId, currentMonth);
+    } = useMyAttendance(currentUser?.uid, currentUser?.companyId, currentMonth, currentUser);
 
     // Mapped State
     const currentLocation = hookLocation;
@@ -97,9 +103,19 @@ export default function TimeAttendance() {
     const [isCloseShiftModalOpen, setIsCloseShiftModalOpen] = useState(false);
     const [closeShiftForm, setCloseShiftForm] = useState({ date: '', outTime: '', reason: '' });
 
+    // Unscheduled Work Request Modal State
+    const [isUnscheduledModalOpen, setIsUnscheduledModalOpen] = useState(false);
+    const todayDateStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+    const [unscheduledForm, setUnscheduledForm] = useState({ date: todayDateStr, timeIn: '', timeOut: '', reason: '' });
+
     const [showGreetingPopup, setShowGreetingPopup] = useState(false);
     const [greetingMessage, setGreetingMessage] = useState({ title: '', text: '', isLate: false, type: 'in' });
     const popupTimeoutRef = useRef(null);
+
+    // Shift Selection Modal State
+    const [showShiftSelectModal, setShowShiftSelectModal] = useState(false);
+    const [masterShifts, setMasterShifts] = useState([]);
+    const [selectedShiftId, setSelectedShiftId] = useState('');
 
     // ===================================================
     // ⚡️ Performance Optimization (Memoization)
@@ -111,6 +127,9 @@ export default function TimeAttendance() {
         currentMonth,
         deductionConfig.employmentType
     );
+
+    // Unscheduled Work Request Hook
+    const { submitUnscheduledWorkRequest } = useMyRequests(currentUser);
 
     const sortedLogs = useMemo(() => {
         return dailyBreakdown
@@ -129,24 +148,40 @@ export default function TimeAttendance() {
     const isClockIn = !todayRecord || todayRecord.actionType === 'clock-out';
 
     // ===================================================
-    // ⏰ Actions
+    // ⏰ Actions & Logics
     // ===================================================
+
+    // Load Master Shifts
+    useEffect(() => {
+        if (companyConfig?.shifts) {
+            setMasterShifts(companyConfig.shifts);
+        }
+    }, [companyConfig]);
+
+    // Handle Attempt Clock
     const handleAttemptClock = () => {
         if (clocking || activeTab !== 'scan' || locationStatus !== 'success') {
             if (locationStatus === 'out-of-range') {
                 dialog.showAlert(`คุณอยู่นอกพื้นที่ (${Math.round(distance)} ม.)\nกรุณาขยับเข้าใกล้ร้าน`, "Out of Range", "error");
-            }
-            else if (locationStatus === 'error' || locationStatus === 'loading') {
+            } else if (locationStatus === 'error' || locationStatus === 'loading') {
                 retryGps();
                 dialog.showAlert(gpsErrorMsg || "กำลังค้นหาพิกัด...", "GPS", "warning");
             }
             return;
         }
 
-        const actionType = (!todayRecord || todayRecord.actionType === 'clock-out') ? 'clock-in' : 'clock-out';
-        performClockAction(actionType);
+        const isClockInAction = !todayRecord || todayRecord.actionType === 'clock-out';
+
+        // ถ้าตอกเข้า และไม่มีกะ ให้เด้ง Modal เลือกกะก่อน
+        if (isClockInAction && !todaySchedule) {
+            setShowShiftSelectModal(true);
+            return;
+        }
+
+        performClockAction(isClockInAction ? 'clock-in' : 'clock-out');
     };
 
+    // Standard Clock Action
     const performClockAction = async (type) => {
         setClocking(true);
         try {
@@ -159,7 +194,7 @@ export default function TimeAttendance() {
 
             if (result.success) {
                 if (result.offline) {
-                    dialog.showAlert("ไม่มีสัญญาณอินเทอร์เน็ต\nบันทึกข้อมูลในเครื่องแล้ว ระบบจะอัปโหลดเมื่อมีสัญญาณ", "Offline Mode", "warning");
+                    dialog.showAlert("ไม่มีสัญญาณอินเทอร์เน็ต\nบันทึกข้อมูลในเครื่องแล้ว", "Offline Mode", "warning");
                 } else {
                     setGreetingMessage({
                         title: result.message,
@@ -182,16 +217,51 @@ export default function TimeAttendance() {
         }
     };
 
+    // Unscheduled Clock In Action
+    const proceedWithUnscheduledClockIn = async (selectedShiftId) => {
+        setShowShiftSelectModal(false);
+        setSelectedShiftId('');
+        setClocking(true);
+
+        try {
+            const result = await hookClockIn({
+                isUnscheduled: true,
+                requestedShiftId: selectedShiftId,
+                scheduleData: null
+            });
+
+            if (result.success) {
+                if (result.offline) {
+                    dialog.showAlert("ไม่มีสัญญาณอินเทอร์เน็ต\nบันทึกข้อมูลในเครื่องแล้ว", "Offline Mode", "warning");
+                } else {
+                    setGreetingMessage({
+                        title: result.message,
+                        text: 'รอ Admin อนุมัติการทำงานนอกตาราง',
+                        isLate: result.isLate || false,
+                        type: 'clock-in'
+                    });
+                    setShowGreetingPopup(true);
+                    clearTimeout(popupTimeoutRef.current);
+                    popupTimeoutRef.current = setTimeout(() => setShowGreetingPopup(false), 5000);
+                }
+            } else {
+                dialog.showAlert(result.message, "Error", "error");
+            }
+        } catch (err) {
+            console.error('Unscheduled clock-in error:', err);
+            dialog.showAlert("เกิดข้อผิดพลาด: " + err.message, "Error", "error");
+        } finally {
+            setClocking(false);
+        }
+    };
+
+    // Submit Retro Request
     const handleRetroSubmit = async () => {
         if (!retroForm.date || !retroForm.timeIn || !retroForm.timeOut || !retroForm.reason) {
             return dialog.showAlert("กรุณากรอกข้อมูลให้ครบถ้วน", "ข้อมูลไม่ครบ", "warning");
         }
-
         setClocking(true);
-        const result = await hookSubmitRetro({
-            ...retroForm,
-            userName: currentUser.name
-        });
+        const result = await hookSubmitRetro({ ...retroForm, userName: currentUser.name });
         setClocking(false);
 
         if (result.success) {
@@ -203,25 +273,22 @@ export default function TimeAttendance() {
         }
     };
 
-    const handleCloseShiftSubmit = async () => {
-        if (!closeShiftForm.outTime || !closeShiftForm.reason || !closeShiftForm.date) {
-            dialog.showAlert("กรุณากรอกข้อมูลให้ครบถ้วน", "ข้อมูลไม่ครบ", "warning");
-            return;
+    // Submit Unscheduled Form
+    const handleUnscheduledWorkSubmit = async () => {
+        if (!unscheduledForm.date || !unscheduledForm.timeIn || !unscheduledForm.timeOut) {
+            return dialog.showAlert("กรุณากรอกวันที่ และเวลาเข้า-ออกงาน", "ข้อมูลไม่ครบ", "warning");
         }
-
         setClocking(true);
         try {
-            // Construct Date (combine date + time)
-            const baseDate = new Date(closeShiftForm.date);
-            const [h, m] = closeShiftForm.outTime.split(':').map(Number);
-            baseDate.setHours(h, m, 0, 0);
-
-            // Call Service
-            await closeStaleShift(staleCheckIn.id, baseDate, closeShiftForm.reason);
-
-            await dialog.showAlert("ปิดกะเรียบร้อยแล้ว", "สำเร็จ", "success");
-            setIsCloseShiftModalOpen(false);
-            setCloseShiftForm({ date: '', outTime: '', reason: '' });
+            const result = await submitUnscheduledWorkRequest({
+                date: unscheduledForm.date,
+                timeIn: unscheduledForm.timeIn,
+                timeOut: unscheduledForm.timeOut,
+                reason: unscheduledForm.reason || 'ไม่มีกะงาน ขออนุมัติวันทำงาน',
+            });
+            await dialog.showAlert(`ส่งคำขอเรียบร้อยแล้ว (${result.documentNo})\nรอ Admin อนุมัติ`, "สำเร็จ", "success");
+            setIsUnscheduledModalOpen(false);
+            setUnscheduledForm({ date: todayDateStr, timeIn: '', timeOut: '', reason: '' });
         } catch (err) {
             dialog.showAlert(err.message, "Error", "error");
         } finally {
@@ -229,40 +296,66 @@ export default function TimeAttendance() {
         }
     };
 
+    // Handle Close Stale Shift
+    const handleCloseShiftSubmit = async () => {
+        if (!closeShiftForm.outTime || !closeShiftForm.reason || !closeShiftForm.date) {
+            dialog.showAlert("กรุณากรอกข้อมูลให้ครบถ้วน", "ข้อมูลไม่ครบ", "warning");
+            return;
+        }
+        setClocking(true);
+        try {
+            if (typeof closeStaleShift === 'function') {
+                // Combine date and time string into a Date object
+                // Use +07:00 or local parser. new Date(`${date}T${time}:00`) works in local timezone.
+                const manualClockOutTime = new Date(`${closeShiftForm.date}T${closeShiftForm.outTime}:00`);
+
+                if (isNaN(manualClockOutTime.getTime())) {
+                    throw new Error("รูปแบบวันที่หรือเวลาไม่ถูกต้อง");
+                }
+
+                const res = await closeStaleShift(
+                    staleCheckIn?.id,
+                    manualClockOutTime,
+                    closeShiftForm.reason,
+                    staleCheckIn?.clockIn // Pass the original clock-in time
+                );
+
+                if (!res.success) {
+                    // Return early, don't close modal, show error
+                    dialog.showAlert(res.message || "เกิดข้อผิดพลาดในการปิดกะ", "Error", "error");
+                    setClocking(false);
+                    return;
+                }
+            }
+            setIsCloseShiftModalOpen(false);
+            dialog.showAlert("ปิดกะก่อนหน้าเรียบร้อยแล้ว", "สำเร็จ", "success");
+        } catch (err) {
+            dialog.showAlert(err.message || "เกิดข้อผิดพลาดในการปิดกะ", "Error", "error");
+        } finally {
+            setClocking(false);
+        }
+    };
+
+    // ===================================================
+    // 📦 RENDER (JSX)
+    // ===================================================
     return (
-        <div className="h-[100dvh] bg-[#F2F2F7] font-sans text-slate-900 relative overflow-hidden select-none flex flex-col">
+        <div className="flex flex-col min-h-full bg-[#FAFAFA] font-sans">
 
-            {activeTab === 'scan' && (
-                <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-                    <div className="absolute top-[5%] -left-[10%] w-96 h-96 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob bg-blue-300"></div>
-                    <div className="absolute top-[15%] -right-[10%] w-96 h-96 rounded-full bg-purple-300 mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
+            {/* --- Header Section --- */}
+            <div className="px-6 pt-12 pb-4 flex justify-between items-end shrink-0 relative z-20">
+                <div>
+                    <p className="text-sm font-bold text-slate-500 mb-1 uppercase tracking-wider">
+                        {displayDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                    </p>
+                    <h1 className="text-3xl font-extrabold text-[#1C1C1E] tracking-tight">Attendance</h1>
                 </div>
-            )}
-
-            {/* ✅ Loading Overlay */}
-            {hookLoading && (
-                <div className="absolute inset-0 z-50 bg-white/50 backdrop-blur-sm flex items-center justify-center">
-                    <div className="flex flex-col items-center animate-pulse">
-                        <Crosshair className="animate-spin text-blue-500 mb-2" size={32} />
-                        <p className="text-xs font-bold text-slate-500">Syncing data...</p>
-                    </div>
+                <div className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md shadow-sm flex items-center justify-center text-slate-400">
+                    <UserCircle size={24} weight="fill" />
                 </div>
-            )}
+            </div>
 
-            {/* Header */}
-            <div className="relative z-10 px-6 pt-8 pb-2 shrink-0">
-                <div className="flex justify-between items-start mb-4">
-                    <div>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">
-                            {displayDate.toLocaleDateString('en-US', { weekday: 'long' })}, {displayDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })}
-                        </p>
-                        <h1 className="text-3xl font-extrabold text-[#1C1C1E] tracking-tight">Attendance</h1>
-                    </div>
-                    <div className="w-10 h-10 rounded-full bg-white/80 backdrop-blur-md shadow-sm flex items-center justify-center text-slate-400">
-                        <UserCircle size={24} weight="fill" />
-                    </div>
-                </div>
-
+            <div className="px-6 pb-4 shrink-0 relative z-20">
                 <div className="bg-[#767680]/15 p-1 rounded-xl flex backdrop-blur-sm">
                     <button onClick={() => setActiveTab('scan')} className={`flex-1 py-1.5 rounded-[10px] text-xs font-bold flex items-center justify-center gap-2 transition-all duration-300 ${activeTab === 'scan' ? 'bg-white text-black shadow-[0_2px_8px_rgba(0,0,0,0.12)]' : 'text-slate-500 hover:text-slate-700'}`}>
                         <Fingerprint weight={activeTab === 'scan' ? "fill" : "bold"} size={14} /> Scan
@@ -279,12 +372,24 @@ export default function TimeAttendance() {
 
                     {/* Shift Info & Status */}
                     <div className="flex items-center justify-center gap-2 w-full">
-                        <div className="flex items-center gap-2 bg-white/60 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-white/50 shadow-sm">
-                            <Briefcase size={14} className="text-slate-500" weight="duotone" />
-                            <span className="text-[10px] font-bold text-slate-600">
-                                {todaySchedule ? `${todaySchedule.startTime} - ${todaySchedule.endTime}` : "No shift"}
-                            </span>
-                        </div>
+                        {todaySchedule ? (
+                            <div className="flex items-center gap-2 bg-white/60 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-slate-200 shadow-sm">
+                                <Briefcase size={14} className="text-slate-500" weight="duotone" />
+                                <span className="text-[10px] font-bold text-slate-600">
+                                    {`${todaySchedule.startTime} - ${todaySchedule.endTime}`}
+                                </span>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => setIsUnscheduledModalOpen(true)}
+                                className="flex items-center gap-2 bg-amber-50/80 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-amber-200 shadow-sm hover:bg-amber-100 active:scale-95 transition-all cursor-pointer"
+                            >
+                                <WarningCircle size={14} className="text-amber-500" weight="fill" />
+                                <span className="text-[10px] font-bold text-amber-700">
+                                    No shift · ขอรับรองวันทำงาน
+                                </span>
+                            </button>
+                        )}
                         <div className="flex items-center gap-1">
                             <div
                                 onClick={() => { retryGps(); setShowMap(true); }}
@@ -300,21 +405,16 @@ export default function TimeAttendance() {
                                             locationStatus === 'error' ? (gpsErrorMsg || "Retry GPS") : "Locating..."}
                                 </span>
                             </div>
-                            <button onClick={() => setShowHelp(true)} className="w-8 h-8 bg-white/60 backdrop-blur-md rounded-full border border-white/50 shadow-sm flex items-center justify-center text-slate-400 hover:text-blue-500 hover:bg-white transition-all active:scale-95">
+                            <button onClick={() => setShowHelp(true)} className="w-8 h-8 bg-white/60 backdrop-blur-md rounded-full border border-slate-200 shadow-sm flex items-center justify-center text-slate-400 hover:text-blue-500 hover:bg-white transition-all active:scale-95">
                                 <Info weight="bold" size={16} />
                             </button>
                         </div>
                     </div>
 
-                    {/* ✅ Uses LiveClock Component */}
-                    <LiveClock
-                        isClockIn={isClockIn}
-                        locationStatus={locationStatus}
-                        distance={distance}
-                    />
+                    <LiveClock isClockIn={isClockIn} locationStatus={locationStatus} distance={distance} />
 
-                    {/* ✅ Close Previous Shift Card (Stale Check-in) */}
-                    {isStuck && staleCheckIn ? (
+                    {/* Close Previous Shift Card (Stale Check-in) */}
+                    {isStuck && staleCheckIn && (
                         <div className="w-full max-w-[320px] bg-rose-50 border border-rose-100 rounded-2xl p-5 shadow-lg shadow-rose-100 flex flex-col gap-4 animate-pulse-soft">
                             <div className="flex items-start gap-3">
                                 <div className="bg-rose-100 text-rose-500 rounded-full p-2 shrink-0">
@@ -331,30 +431,20 @@ export default function TimeAttendance() {
                             <button
                                 onClick={() => {
                                     setIsCloseShiftModalOpen(true);
-                                    setCloseShiftForm({
-                                        date: formatDateForInput(staleCheckIn.clockIn),
-                                        outTime: '18:00',
-                                        reason: 'ลืมตอกบัตรออก'
-                                    });
+                                    setCloseShiftForm({ date: formatDateForInput(staleCheckIn.clockIn), outTime: '18:00', reason: 'ลืมตอกบัตรออก' });
                                 }}
                                 className="w-full py-3 rounded-xl bg-rose-500 text-white font-bold text-xs shadow-md active:scale-95 transition-all flex items-center justify-center gap-2"
                             >
                                 <SignOut weight="bold" size={16} /> Close Previous Shift
                             </button>
                         </div>
-                    ) : (
-                        /* ✅ Normal Hold Button */
-                        <HoldButton
-                            onAction={handleAttemptClock}
-                            disabled={clocking || locationStatus !== 'success'}
-                            isClockIn={isClockIn}
-                            locationStatus={locationStatus}
-                        />
                     )}
+
+                    <HoldButton onAction={handleAttemptClock} disabled={clocking || locationStatus !== 'success'} isClockIn={isClockIn} locationStatus={locationStatus} />
 
                     <button
                         onClick={() => setIsRetroModalOpen(true)}
-                        className="text-slate-400 text-[10px] font-bold tracking-wide hover:text-slate-600 transition flex items-center gap-1.5 py-2 px-4 rounded-full hover:bg-white/50"
+                        className="text-slate-400 text-[10px] font-bold tracking-wide hover:text-slate-600 transition flex items-center gap-1.5 py-2 px-4 rounded-full hover:bg-slate-100"
                     >
                         <WarningCircle size={14} /> Forgot? Request Adjustment
                     </button>
@@ -412,18 +502,16 @@ export default function TimeAttendance() {
                                                 {item.deduction > 0 && (<div className="flex items-start gap-3 mt-1 bg-white border border-rose-100 p-2 rounded-xl"><div className="w-8 h-8 rounded-full bg-rose-50 flex items-center justify-center text-rose-500 shrink-0"><WarningOctagon weight="fill" size={16} /></div><div className="flex-1"><div className="flex justify-between items-center"><p className="text-xs font-bold text-rose-600">Late Penalty</p><span className="text-xs font-bold text-rose-600">-฿{item.deduction}</span></div><p className="text-[10px] text-slate-500 mt-0.5">Late: {item.lateMinutes} mins {item.isCapped && <span className="block text-rose-500 font-bold mt-0.5">*Max Limit</span>}</p></div></div>)}
                                             </div>
                                         )}
-                                        {
-                                            isExpanded && item.status === 'absent' && (
-                                                <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 animate-fade-in">
-                                                    <button
-                                                        onClick={(e) => { e.stopPropagation(); setIsRetroModalOpen(true); setRetroForm(prev => ({ ...prev, date: formatDateForInput(item.date) })); }}
-                                                        className="w-full py-2 bg-rose-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-200"
-                                                    >
-                                                        Request Adjustment
-                                                    </button>
-                                                </div>
-                                            )
-                                        }
+                                        {isExpanded && item.status === 'absent' && (
+                                            <div className="bg-slate-50 px-4 py-3 border-t border-slate-100 animate-fade-in">
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); setIsRetroModalOpen(true); setRetroForm(prev => ({ ...prev, date: formatDateForInput(item.date) })); }}
+                                                    className="w-full py-2 bg-rose-500 text-white rounded-xl text-xs font-bold shadow-lg shadow-rose-200"
+                                                >
+                                                    Request Adjustment
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
                                 );
                             })
@@ -432,101 +520,59 @@ export default function TimeAttendance() {
                 </div>
             )}
 
-            {/* Retro Modal */}
-            {
-                isRetroModalOpen && createPortal(
-                    <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center font-sans">
-                        <div className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" onClick={() => setIsRetroModalOpen(false)}></div>
-                        <div className="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col max-h-[90vh] animate-slide-up overflow-hidden">
-                            <div className="px-6 pt-6 pb-4 flex justify-between items-center shrink-0">
-                                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2"><Timer weight="duotone" className="text-blue-500" /> Request Adjustment</h2>
-                                <button onClick={() => setIsRetroModalOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 flex items-center justify-center"><X weight="bold" /></button>
-                            </div>
-                            <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
-                                <div className="flex gap-4">
-                                    <div className="flex-1"><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Time In</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.timeIn} onChange={(e) => setRetroForm({ ...retroForm, timeIn: e.target.value })} /></div>
-                                    <div className="flex-1"><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Time Out</label><input type="time" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.timeOut} onChange={(e) => setRetroForm({ ...retroForm, timeOut: e.target.value })} /></div>
-                                </div>
-                                <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Date</label><input type="date" className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-100" value={retroForm.date} onChange={(e) => setRetroForm({ ...retroForm, date: e.target.value })} /></div>
-                                <div><label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Reason</label><textarea className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-4 text-sm text-slate-800 outline-none resize-none h-24 focus:ring-2 focus:ring-blue-100" placeholder="Why are you adjusting?" value={retroForm.reason} onChange={(e) => setRetroForm({ ...retroForm, reason: e.target.value })}></textarea></div>
-                                <div className="pt-4 pb-4"><button onClick={handleRetroSubmit} disabled={clocking} className="w-full bg-[#007AFF] text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-blue-500/20 active:scale-95 transition">Send Request</button></div>
-                            </div>
-                        </div>
-                    </div>, document.body
-                )
-            }
+            {/* === MODALS PORTALS === */}
 
-            {
-                showGreetingPopup && (
-                    <div className="fixed inset-0 z-[70] flex items-center justify-center px-6 pointer-events-none">
-                        <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"></div>
-                        <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl p-6 animate-zoom-in pointer-events-auto flex flex-col items-center text-center relative z-10">
-                            <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${greetingMessage.isLate ? 'bg-orange-50 text-orange-500' : 'bg-[#E8F8ED] text-[#34C759]'}`}>{greetingMessage.isLate ? <WarningCircle weight="fill" size={40} /> : <CheckCircle weight="fill" size={40} />}</div>
-                            <h3 className="font-extrabold text-2xl text-slate-900 mb-2">{greetingMessage.title}</h3>
-                            <p className="text-slate-500 text-sm font-medium mb-6 px-4 leading-relaxed">{greetingMessage.text}</p>
-                            <button onClick={() => setShowGreetingPopup(false)} className="w-full bg-[#2563EB] text-white py-3.5 rounded-xl font-bold text-sm shadow-lg">Done</button>
-                        </div>
+            <RetroRequestModal
+                isOpen={isRetroModalOpen}
+                onClose={() => setIsRetroModalOpen(false)}
+                form={retroForm}
+                setForm={setRetroForm}
+                onSubmit={handleRetroSubmit}
+                isSubmitting={clocking}
+            />
+
+            <UnscheduledWorkModal
+                isOpen={isUnscheduledModalOpen}
+                onClose={() => setIsUnscheduledModalOpen(false)}
+                form={unscheduledForm}
+                setForm={setUnscheduledForm}
+                onSubmit={handleUnscheduledWorkSubmit}
+                isSubmitting={clocking}
+            />
+
+            <CloseShiftModal
+                isOpen={isCloseShiftModalOpen}
+                onClose={() => setIsCloseShiftModalOpen(false)}
+                form={closeShiftForm}
+                setForm={setCloseShiftForm}
+                onSubmit={handleCloseShiftSubmit}
+                isSubmitting={clocking}
+            />
+
+            <ShiftSelectionModal
+                isOpen={showShiftSelectModal}
+                onClose={() => setShowShiftSelectModal(false)}
+                masterShifts={masterShifts}
+                selectedShiftId={selectedShiftId}
+                setSelectedShiftId={setSelectedShiftId}
+                onSubmit={(id) => proceedWithUnscheduledClockIn(id)}
+                isSubmitting={clocking}
+            />
+
+            {/* Greeting Toast */}
+            {showGreetingPopup && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center px-6 pointer-events-none">
+                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"></div>
+                    <div className="bg-white w-full max-w-sm rounded-[32px] shadow-2xl p-6 animate-zoom-in pointer-events-auto flex flex-col items-center text-center relative z-10">
+                        <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${greetingMessage.isLate ? 'bg-orange-50 text-orange-500' : 'bg-[#E8F8ED] text-[#34C759]'}`}>{greetingMessage.isLate ? <WarningCircle weight="fill" size={40} /> : <CheckCircle weight="fill" size={40} />}</div>
+                        <h3 className="font-extrabold text-2xl text-slate-900 mb-2">{greetingMessage.title}</h3>
+                        <p className="text-slate-500 text-sm font-medium mb-6 px-4 leading-relaxed">{greetingMessage.text}</p>
+                        <button onClick={() => setShowGreetingPopup(false)} className="w-full bg-[#2563EB] text-white py-3.5 rounded-xl font-bold text-sm shadow-lg">Done</button>
                     </div>
-                )
-            }
+                </div>
+            )}
 
-            {/* Close Shift Modal */}
-            {
-                isCloseShiftModalOpen && createPortal(
-                    <div className="fixed inset-0 z-[65] flex items-end justify-center sm:items-center font-sans">
-                        <div className="absolute inset-0 bg-black/40 backdrop-blur-md transition-opacity" onClick={() => setIsCloseShiftModalOpen(false)}></div>
-                        <div className="bg-white w-full max-w-sm rounded-t-[32px] sm:rounded-[32px] shadow-2xl relative z-10 flex flex-col p-6 animate-slide-up">
-                            <div className="flex justify-between items-center mb-6">
-                                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                                    <SignOut weight="duotone" className="text-rose-500" /> Close Shift
-                                </h2>
-                                <button onClick={() => setIsCloseShiftModalOpen(false)} className="w-8 h-8 bg-slate-100 rounded-full text-slate-500 hover:bg-slate-200 flex items-center justify-center"><X weight="bold" /></button>
-                            </div>
-
-                            <div className="space-y-4 mb-6">
-                                <div>
-                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Date</label>
-                                    <input
-                                        type="date"
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition"
-                                        value={closeShiftForm.date}
-                                        onChange={(e) => setCloseShiftForm({ ...closeShiftForm, date: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Actual Clock Out Time</label>
-                                    <input
-                                        type="time"
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm font-bold text-slate-800 outline-none focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition"
-                                        value={closeShiftForm.outTime}
-                                        onChange={(e) => setCloseShiftForm({ ...closeShiftForm, outTime: e.target.value })}
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 block">Reason</label>
-                                    <textarea
-                                        className="w-full bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm text-slate-800 outline-none resize-none h-20 focus:ring-2 focus:ring-rose-100 focus:border-rose-300 transition"
-                                        placeholder="ทำไมถึงลืมตอกบัตรออก?"
-                                        value={closeShiftForm.reason}
-                                        onChange={(e) => setCloseShiftForm({ ...closeShiftForm, reason: e.target.value })}
-                                    ></textarea>
-                                </div>
-                            </div>
-
-                            <button
-                                onClick={handleCloseShiftSubmit}
-                                disabled={clocking}
-                                className="w-full bg-rose-500 text-white py-3.5 rounded-xl font-bold text-base shadow-lg shadow-rose-500/20 active:scale-95 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                            >
-                                {clocking ? <Crosshair className="animate-spin" /> : <CheckCircle weight="bold" />}
-                                Confirm Close Shift
-                            </button>
-                        </div>
-                    </div>, document.body
-                )
-            }
-
-            {/* Helper Modals (Lazy Loaded) */}
+            {/* Map & Help Modals */}
             <Suspense fallback={null}>
                 {showHelp && <LocationHelpModal isOpen={showHelp} onClose={() => setShowHelp(false)} />}
                 {showMap && <AttendanceMiniMap isOpen={showMap} onClose={() => setShowMap(false)} userLocation={hookLocation} companyLocation={companyConfig?.location} radius={companyConfig?.radius} />}

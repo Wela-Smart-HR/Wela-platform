@@ -32,9 +32,16 @@ export function useTodayCheckIn(userId) {
 
         // 1. Query Last Action (Limit 1, Descending)
         // We don't filter by date here because we need to know the *latest* state regardless of when it happened.
+        // 1. Query Last Action (Limit 1, Descending)
+        // Optimization: Limit to last 7 days to enable Range Index and avoid full scan
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
         const q = query(
             collection(db, "attendance_logs"),
             where("employee_id", "==", userId),
+            where("clock_in", ">=", sevenDaysAgo.toISOString()),
+            where("clock_in", "<", "3000-01-01"), // Filter out invalid dates like "undefined..."
             orderBy("clock_in", "desc"),
             limit(1)
         );
@@ -85,13 +92,14 @@ export function useTodayCheckIn(userId) {
                     // Check for Stale Check-in (> 20 Hours)
                     if (clockInTime) {
                         const hoursSinceIn = (new Date() - clockInTime) / (1000 * 60 * 60);
-                        if (hoursSinceIn > 20) {
-                            // User forgot to clock out yesterday
+                        // ✅ FIX: Only consider it stuck if it hasn't been submitted for manual review yet
+                        if (hoursSinceIn > 20 && record.status !== 'pending_review') {
+                            // User forgot to clock out yesterday AND hasn't sent a request yet
                             isStuck = true;
                             staleCheckIn = record;
                             isCheckedIn = false; // Forced false to allow "Closing" flow
                         } else {
-                            // Normal working state
+                            // Normal working state (or already submitted request)
                             isCheckedIn = true;
                         }
                     }
@@ -112,6 +120,37 @@ export function useTodayCheckIn(userId) {
 
                     // In both cases, isCheckedIn is false.
                     isCheckedIn = false;
+                }
+
+                // === Contextual Filtering (Fix for Dashboard) ===
+                // If the latest record is from a previous business day and is COMPLETED (clocked out),
+                // it should NOT be returned as 'todayRecord'. 
+                // (e.g. Today is 18th, latest record is 16th -> Should show empty, not 16th)
+                const todayBusinessDate = DateUtils.getBusinessDate(new Date(), 4); // "YYYY-MM-DD"
+                const recordBusinessDate = DateUtils.getBusinessDate(clockInTime, 4);
+
+                // More strict filtering: Only show records from current business day
+                // or records that are still active (no clock out)
+                if (recordBusinessDate < todayBusinessDate && clockOutTime) {
+                    todayRecord = null;
+                }
+
+                // Additional check: If record is from previous day but still active (no clock out),
+                // it should be treated as a stale shift, not today's active record (unless pending review)
+                if (recordBusinessDate < todayBusinessDate && !clockOutTime) {
+                    if (record.status !== 'pending_review') {
+                        isStuck = true;
+                        staleCheckIn = record;
+                        isCheckedIn = false;
+                        todayRecord = null;
+                    } else {
+                        // It's from yesterday, but already has a pending close request
+                        // We shouldn't flag it as stuck, but we still don't want to show it as "Today"
+                        isStuck = false;
+                        staleCheckIn = null;
+                        isCheckedIn = false;
+                        todayRecord = null;
+                    }
                 }
 
                 setStatus({

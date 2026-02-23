@@ -10,6 +10,7 @@ import { Location } from './value-objects/Location.js';
  * 
  * Props:
  * - id, companyId, employeeId
+ * - shiftDate (String: YYYY-MM-DD)
  * - clockIn (Date), clockOut (Date|null)
  * - clockInLocation (Location|null), clockOutLocation (Location|null)
  * - status ('on-time'|'late'|'adjusted'), lateMinutes (number)
@@ -28,6 +29,7 @@ export class AttendanceLog {
         // 1. Guard: ตรวจข้อมูลพื้นฐาน
         const guardResult = Guard.combine([
             Guard.againstNullOrUndefined(props.employeeId, 'Employee ID'),
+            Guard.againstNullOrUndefined(props.shiftDate, 'Shift Date'),
             Guard.againstNullOrUndefined(props.clockIn, 'Clock In Time')
         ]);
 
@@ -42,7 +44,21 @@ export class AttendanceLog {
         if (props.clockOut) {
             const duration = DateUtils.diffInMinutes(props.clockIn, props.clockOut);
             if (duration < 0) {
+                // Check if this might be a cross-day shift issue
+                const clockInHour = props.clockIn.getHours();
+                const clockOutHour = props.clockOut.getHours();
+                
+                if (clockInHour >= 18 && clockOutHour < 12) {
+                    // This looks like a night shift that crosses midnight
+                    return Result.fail("Invalid cross-day shift detected. Clock-out time appears to be from the next day but wasn't handled correctly.");
+                }
+                
                 return Result.fail("Clock-out time cannot be before Clock-in time");
+            }
+            
+            // Additional validation: Clock-out shouldn't be more than 24 hours after clock-in
+            if (duration > 24 * 60) {
+                return Result.fail("Work duration exceeds 24 hours. Please check the times.");
             }
         }
 
@@ -100,6 +116,7 @@ export class AttendanceLog {
     get id() { return this.props.id; }
     get companyId() { return this.props.companyId; }
     get employeeId() { return this.props.employeeId; }
+    get shiftDate() { return this.props.shiftDate; }
     get clockIn() { return this.props.clockIn; }
     get clockOut() { return this.props.clockOut; }
     get clockInLocation() { return this.props.clockInLocation; }
@@ -116,6 +133,7 @@ export class AttendanceLog {
             id: this.props.id,
             company_id: this.props.companyId,
             employee_id: this.props.employeeId,
+            shift_date: this.props.shiftDate,
             clock_in: this.props.clockIn,
             clock_out: this.props.clockOut || null,
             clock_in_location: this.props.clockInLocation?.toPrimitives() || null,

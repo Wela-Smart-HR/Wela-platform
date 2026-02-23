@@ -4,7 +4,7 @@ import { Location } from '../domain/value-objects/Location.js';
 import { DateUtils } from '../../../shared/kernel/DateUtils.js';
 
 import { db } from '../../../shared/lib/firebase.js';
-import { doc, setDoc, getDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, query, where, getDocs, orderBy, limit, onSnapshot } from 'firebase/firestore';
 
 /**
  * Firebase Implementation
@@ -25,6 +25,7 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
         return {
             company_id: data.company_id,
             employee_id: data.employee_id,
+            shift_date: data.shift_date, // ✅ FIX: Include shift_date for Admin query filters
             clock_in: data.clock_in ? data.clock_in.toISOString() : null,
             clock_out: data.clock_out ? data.clock_out.toISOString() : null,
             clock_in_location: data.clock_in_location || null,  // ✅ New field name
@@ -53,6 +54,7 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
             id: docId,
             companyId: data.company_id,
             employeeId: data.employee_id,
+            shiftDate: data.shift_date,  // ✅ New field
             clockIn: data.clock_in ? new Date(data.clock_in) : null,
             clockOut: data.clock_out ? new Date(data.clock_out) : null,
             clockInLocation: clockInLocRaw ? Location.fromPersistence(clockInLocRaw) : null,
@@ -86,17 +88,21 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
         return this.toDomain(docSnap.id, docSnap.data());
     }
 
-    async findLatestByEmployee(employeeId, date) {
-        const startOfDay = DateUtils.getBusinessDate(date);
-        const endOfDay = new Date(startOfDay);
-        endOfDay.setHours(startOfDay.getHours() + 24);
+    /**
+     * Find latest by Date or shiftDate String
+     * @param {string} employeeId 
+     * @param {Date|string} dateOrShiftDate 
+     */
+    async findLatestByEmployee(employeeId, dateOrShiftDate) {
+        let shiftDateStr = typeof dateOrShiftDate === 'string'
+            ? dateOrShiftDate
+            : DateUtils.formatDate(dateOrShiftDate);
 
-        // 1. Try finding in NEW collection
+        // 1. Try finding in NEW collection by shift_date
         const q = query(
             collection(db, this.collectionName),
             where("employee_id", "==", employeeId),
-            where("clock_in", ">=", startOfDay.toISOString()),
-            where("clock_in", "<", endOfDay.toISOString()),
+            where("shift_date", "==", shiftDateStr),
             orderBy("clock_in", "desc"),
             limit(1)
         );
@@ -108,9 +114,14 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
         }
 
         // 2. FALLBACK: Try finding in LEGACY collection ('attendance')
-        console.warn(`[Repo] New log not found for ${employeeId} on ${date.toDateString()}. Checking legacy 'attendance'...`);
+        console.warn(`[Repo] New log not found for ${employeeId} on ${shiftDateStr}. Checking legacy 'attendance'...`);
 
         try {
+            // Legacy uses Physical Timestamp bounds (midnight to midnight)
+            const dateObj = typeof dateOrShiftDate === 'string' ? new Date(dateOrShiftDate) : dateOrShiftDate;
+            const startOfDay = DateUtils.getBusinessDate(dateObj);
+            const endOfDay = new Date(startOfDay);
+            endOfDay.setHours(startOfDay.getHours() + 24);
             const legacyQ = query(
                 collection(db, 'attendance'),
                 where("userId", "==", employeeId),
@@ -222,7 +233,7 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
         });
 
         // Convert Groups to Domain objects
-        return Object.values(groups).map(g => {
+        return Object.entries(groups).map(([dateKey, g]) => {
             if (!g.in) return null; // Must have at least Clock In
 
             const clockInTime = g.in.createdAt ? g.in.createdAt.toDate() : new Date(g.in.localTimestamp);
@@ -232,6 +243,7 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
                 id: g.inId, // Use ClockIn Doc ID as Identity
                 companyId: g.companyId,
                 employeeId: g.userId,
+                shiftDate: dateKey, // ✅ FIX: Added missing shiftDate
                 clockIn: clockInTime,
                 clockOut: clockOutTime,
                 clockInLocation: g.in.location ? Location.fromPersistence(g.in.location) : null,
@@ -276,5 +288,88 @@ export class FirebaseAttendanceRepository extends AttendanceRepository {
             status: inData.status || 'on-time',
             lateMinutes: 0
         }).getValue();
+    }
+    /**
+     * Subscribe to Attendance Logs (Real-time)
+     * Merges New & Legacy Logs
+     */
+    subscribeToLogs(userId, startDate, endDate, callback) {
+        // Use dynamic imports if needed, or assume they are available from module scope
+        // helper to unsubscribe all
+        const unsubs = [];
+
+        try {
+            // === 1. New Logs ===
+            const q = query(
+                collection(db, this.collectionName),
+                where("employee_id", "==", userId),
+                where("clock_in", ">=", startDate.toISOString()),
+                where("clock_in", "<=", endDate.toISOString()),
+                orderBy("clock_in", "desc")
+            );
+
+            let newLogsCandidate = [];
+            let legacyLogsCandidate = [];
+
+            // Internal helper to merge and callback
+            const pushUpdate = () => {
+                const mergedMap = new Map();
+
+                // 2. Process Legacy (Base)
+                legacyLogsCandidate.forEach(log => {
+                    if (!log.clockIn) return;
+                    const key = log.clockIn.toDateString();
+                    mergedMap.set(key, log);
+                });
+
+                // 3. Process New (Overlay)
+                newLogsCandidate.forEach(log => {
+                    if (!log.clockIn) return;
+                    const key = log.clockIn.toDateString();
+                    mergedMap.set(key, log);
+                });
+
+                // 4. Sort & Emit
+                const finalLogs = Array.from(mergedMap.values())
+                    .sort((a, b) => b.clockIn - a.clockIn);
+
+                callback(finalLogs);
+            };
+
+            const unsubNew = onSnapshot(q, (snapshot) => {
+                newLogsCandidate = snapshot.docs.map(doc => this.toDomain(doc.id, doc.data())).filter(Boolean);
+                pushUpdate();
+            });
+            unsubs.push(unsubNew);
+
+            // === 2. Legacy Logs ===
+            // Note: Legacy query needs careful date handling (Date object vs String)
+            // The original code used Date objects for legacy query
+            const legacyQ = query(
+                collection(db, 'attendance'),
+                where("userId", "==", userId),
+                where("createdAt", ">=", startDate),
+                where("createdAt", "<=", endDate),
+                orderBy("createdAt", "asc")
+            );
+
+            const unsubLegacy = onSnapshot(legacyQ, (snapshot) => {
+                // Use the helper _processLegacySnapshots which returns Domain Entities
+                // But wait, _processLegacySnapshots expects ALL docs for grouping.
+                // onSnapshot returns all docs in query? Yes.
+                legacyLogsCandidate = this._processLegacySnapshots(snapshot.docs);
+                pushUpdate();
+            });
+            unsubs.push(unsubLegacy);
+
+        } catch (err) {
+            console.error("[Repo] Subscribe Error:", err);
+            // Don't crash, just log. Callback might not fire.
+        }
+
+        // Return Unsubscribe All function
+        return () => {
+            unsubs.forEach(fn => fn());
+        };
     }
 }

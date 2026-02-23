@@ -200,21 +200,118 @@ export const requestsRepo = {
                         // (Stats update omitted for brevity, assume handled by schedule trigger or add back if critical)
                     }
 
-                    // Case B: Adjustment
+                    // Case B: Adjustment / Retro
                     if (prevReq.type === 'attendance-adjustment' || prevReq.type === 'retro') {
-                        // ... (Logic for updating attendance_logs)
-                        // For brevity, using simplified logic. In real PROD, copy the huge block from previous version.
+                        // ✅ FIX: retro requests store data in nested `data` object
+                        // while attendance-adjustment stores at top-level.
+                        // Support both formats with fallback.
+                        const nestedData = prevReq.data || {};
+                        const effectiveDate = prevReq.targetDate || nestedData.date || prevReq.date;
+                        const timeIn = nestedData.timeIn || prevReq.timeIn;
+                        const timeOut = nestedData.timeOut || prevReq.timeOut;
+
+                        if (!effectiveDate) {
+                            console.error('[approveRequest] Missing effectiveDate for adjustment');
+                        }
+
+                        // ✅ FIX: Convert local Thai time → UTC ISO string for Firestore range queries
+                        // Using new Date(localISO).toISOString() converts +07:00 → proper UTC "Z" format
+                        // Critical: Firestore string comparisons are LEXICOGRAPHIC
+                        // Records stored as "+07:00" fall OUTSIDE UTC-based query ranges in payroll.repo.js
+                        const clockInISO = (effectiveDate && timeIn)
+                            ? new Date(`${effectiveDate}T${timeIn}:00+07:00`).toISOString()
+                            : null;
+                        const clockOutISO = (effectiveDate && timeOut)
+                            ? new Date(`${effectiveDate}T${timeOut}:00+07:00`).toISOString()
+                            : null;
+
+                        const newLogRef = doc(collection(db, 'attendance_logs'));
+                        const logData = {
+                            employee_id: prevReq.userId,
+                            company_id: prevReq.companyId,
+                            shift_date: effectiveDate,
+                            status: 'adjusted',
+                            late_minutes: 0,
+                            work_minutes: 0,
+                            note: `Approved Ref: ${prevReq.documentNo}`,
+                            updated_at: new Date().toISOString()
+                        };
+                        if (clockInISO) logData.clock_in = clockInISO;
+                        if (clockOutISO) logData.clock_out = clockOutISO;
+
+                        transaction.set(newLogRef, logData);
+                    }
+
+                    // Case C: Unscheduled Work (ขออนุมัติวันทำงานพิเศษ)
+                    // เมื่ออนุมัติ → สร้าง schedule doc (ให้ระบบ Payroll มองเห็นเป็นวันทำงาน)
+                    //            → สร้าง attendance_log (บันทึกเวลาเข้า-ออกจริง)
+                    if (prevReq.type === 'unscheduled-work') {
                         const effectiveDate = prevReq.targetDate || prevReq.date;
-                        // Find existing log if any (simplified query not possible in strict transaction without known ID)
-                        // Assuming we create NEW log for adjustment as it's safer
+                        const timeIn = prevReq.timeIn;
+                        const timeOut = prevReq.timeOut;
+
+                        // === Guard: ต้องมี date, timeIn, timeOut ===
+                        if (!effectiveDate) {
+                            console.error('[approveRequest] Missing effectiveDate for unscheduled-work');
+                            throw new Error('ข้อมูลวันที่ไม่ครบ ไม่สามารถอนุมัติได้');
+                        }
+                        if (!timeIn || !timeOut) {
+                            console.error('[approveRequest] Missing timeIn/timeOut for unscheduled-work');
+                            throw new Error('ข้อมูลเวลาเข้า/ออกงานไม่ครบ ไม่สามารถอนุมัติได้');
+                        }
+
+                        // 1. สร้าง Schedule Doc (deterministic ID → ป้องกันซ้ำ, merge → idempotent)
+                        const scheduleId = `${prevReq.userId}_${effectiveDate}`;
+                        const scheduleRef = doc(db, 'schedules', scheduleId);
+                        transaction.set(scheduleRef, {
+                            userId: prevReq.userId,
+                            companyId: prevReq.companyId,
+                            date: effectiveDate,
+                            startTime: timeIn,
+                            endTime: timeOut,
+                            type: 'work',
+                            shiftCode: 'EXTRA',
+                            color: 'amber',
+                            note: `อนุมัติจาก: ${prevReq.documentNo} | ${prevReq.reason || ''}`.trim(),
+                            createdAt: serverTimestamp(),
+                            userName: prevReq.userName,
+                        }, { merge: true });
+
+                        // 2. สร้าง Attendance Log (ใช้ +07:00 → Bangkok TZ)
+                        const clockInISO = `${effectiveDate}T${timeIn}:00+07:00`;
+                        const clockOutISO = `${effectiveDate}T${timeOut}:00+07:00`;
+
                         const newLogRef = doc(collection(db, 'attendance_logs'));
                         transaction.set(newLogRef, {
                             employee_id: prevReq.userId,
                             company_id: prevReq.companyId,
-                            clock_in: `${effectiveDate}T${prevReq.timeIn}:00.000Z`,
-                            clock_out: `${effectiveDate}T${prevReq.timeOut}:00.000Z`,
-                            status: 'adjusted',
-                            note: `Approved Ref: ${prevReq.documentNo}`,
+                            shift_date: effectiveDate,
+                            clock_in: clockInISO,
+                            clock_out: clockOutISO,
+                            status: 'approved-extra',
+                            work_minutes: 0,
+                            late_minutes: 0,
+                            note: `Approved Unscheduled Work Ref: ${prevReq.documentNo}`,
+                        });
+                    }
+
+                    // Case D: ลืมตอกบัตรออก (Stale Shift Close)
+                    // เมื่ออนุมัติ -> เข้าไปอัปเดต Log เดิมให้มีเวลาปิดกะที่สมบูรณ์
+                    if (prevReq.type === 'stale-shift-close') {
+                        if (!prevReq.originalLogId || !prevReq.manualTime) {
+                            console.error('[approveRequest] Missing target log ID or manualTime for stale-shift-close');
+                            throw new Error('ข้อมูลอ้างอิงของกะไม่ครบถ้วน ไม่สามารถอนุมัติได้');
+                        }
+
+                        // We can't use DateUtils here directly but we can create the ISO string
+                        // manualTime is already in UTC string format from the request
+                        const closeTimeISO = new Date(prevReq.manualTime).toISOString();
+
+                        const targetLogRef = doc(db, 'attendance_logs', prevReq.originalLogId);
+                        transaction.update(targetLogRef, {
+                            clock_out: closeTimeISO,
+                            status: 'approved-extra', // mark as manually closed by admin
+                            note: `Admin Approved Stale Close Ref: ${prevReq.documentNo}`,
                             updated_at: new Date().toISOString()
                         });
                     }

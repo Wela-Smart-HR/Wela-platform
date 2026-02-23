@@ -103,46 +103,7 @@ export default function Connect() {
           <h1 className="text-4xl font-extrabold tracking-tight text-[#0F172A]">Dashboard</h1>
         </div>
         <div className="flex gap-3">
-          <div className="relative z-50">
-            <button onClick={() => setShowNotiDropdown(!showNotiDropdown)} className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-400 hover:text-slate-600 transition relative">
-              <Bell weight="bold" size={20} />
-              {unreadCount > 0 && <span className="absolute top-0 right-0 w-3 h-3 bg-rose-500 rounded-full border-2 border-white"></span>}
-            </button>
-            {showNotiDropdown && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowNotiDropdown(false)}></div>
-                <div className="absolute -right-14 top-14 w-80 max-w-[90vw] bg-white rounded-2xl shadow-xl border border-slate-100 z-50 overflow-hidden animate-fade-in origin-top-right">
-                  <div className="p-3 border-b border-slate-50 bg-slate-50/50 flex justify-between items-center">
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">การแจ้งเตือน</h3>
-                    {unreadCount > 0 && <span className="text-[10px] bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-bold">{unreadCount} ใหม่</span>}
-                  </div>
-                  <div className="max-h-[300px] overflow-y-auto">
-                    {notifications.length === 0 ? (
-                      <div className="p-8 text-center text-slate-400 text-xs">ไม่มีการแจ้งเตือนใหม่</div>
-                    ) : (
-                      notifications.map(noti => (
-                        <div key={noti.id} className="p-3 border-b border-slate-50 hover:bg-slate-50 transition flex gap-3">
-                          <div className={`mt-1 shrink-0 ${noti.status === 'approved' ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            {noti.status === 'approved' ? <CheckCircle size={20} weight="fill" /> : <XCircle size={20} weight="fill" />}
-                          </div>
-                          <div>
-                            <p className="text-xs font-bold text-slate-700 leading-snug">
-                              {noti.type === 'leave' ? 'คำขอลา' : 'คำขอแก้เวลา'}
-                              <span className={noti.status === 'approved' ? 'text-emerald-600' : 'text-rose-600'}>
-                                {noti.status === 'approved' ? ' อนุมัติแล้ว' : ' ถูกปฏิเสธ'}
-                              </span>
-                            </p>
-                            {noti.reason && <p className="text-[10px] text-slate-500 truncate max-w-[180px]">"{noti.reason}"</p>}
-                            <p className="text-[9px] text-slate-400 mt-1">{timeAgo(noti.updatedAt)}</p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+          {/* Notifications removed as requested by user */}
           <button onClick={() => navigate('/connect/profile')} className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-400 hover:text-slate-600 transition overflow-hidden">
             {currentUser?.avatar ? (
               <img src={currentUser.avatar} alt="Profile" className="w-full h-full object-cover" />

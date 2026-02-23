@@ -5,6 +5,8 @@ import {
 } from 'firebase/firestore';
 
 import { useGlobalConfig } from '../../contexts/ConfigContext';
+import Swal from 'sweetalert2';
+import { PayrollCalculator } from './services/payroll.calculator';
 
 /**
  * Hook for payroll management (admin perspective)
@@ -67,7 +69,26 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
                 .filter(u => u.role === 'employee');
 
             const allSchedules = schedulesSnap.docs.map(d => d.data());
-            const allAttendances = attendanceSnap.docs.map(d => d.data());
+            const allAttendances = attendanceSnap.docs.map(d => Object.assign(d.data(), { id: d.id })); // need ID for error logging
+
+            // --- ARCHITECTURE RULE: MISSING PUNCH BLOCKER (Ghost Shifts) ---
+            // 🚨 Block calculation if ANY attendance log is missing clock_out in this period.
+            const unclosedShifts = allAttendances.filter(a => !a.clockOut);
+            if (unclosedShifts.length > 0) {
+                setLoading(false);
+                const firstFoundGhost = unclosedShifts[0];
+                const ghostUser = employees.find(e => e.id === firstFoundGhost.userId)?.name || firstFoundGhost.userId;
+                Swal.fire({
+                    icon: 'error',
+                    title: 'พบข้อมูลลงเวลาไม่สมบูรณ์ (Ghost Shift)',
+                    html: `ไม่สามารถคำนวณเงินเดือนได้ เนื่องจากมีพนักงานที่ลืมตอกบัตรออก<br/><br/>
+                           <b>พนักงาน:</b> ${ghostUser}<br/>
+                           <b>วันที่:</b> ${firstFoundGhost.date || 'ไม่ระบุ'}<br/><br/>
+                           กรุณาให้พนักงานแก้ไขเวลา หรือ Admin สั่งปิดกะแบบ Manual ก่อนการคำนวณเงินเดือน`,
+                    confirmButtonColor: '#2563EB'
+                });
+                return; // BLOCK!
+            }
 
             const calculatedList = employees.map(user => {
                 const salary = Number(user.salary) || 0;
@@ -123,9 +144,15 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
                         const finalHours = Math.min(actual, approved) / 60;
                         if (finalHours > 0) {
                             const otTypeObj = otRates.find(t => t.id === sch.otType);
-                            const rate = otTypeObj ? otTypeObj.rate : 1.5;
-                            const hourlyWage = salaryType === 'daily' ? (salary / 8) : (salary / 30 / 8);
-                            const otPay = hourlyWage * finalHours * rate;
+                            const rate = otTypeObj ? Number(otTypeObj.rate) : 1.5;
+                            // === THAI LABOR LAW EXACT OT PAY FORMULA ===
+                            const otPay = PayrollCalculator.calculateOT(
+                                salary, // base salary
+                                30, // Working Days standard
+                                8, // Standard daily hours
+                                rate, // multiplier
+                                finalHours // hours worked
+                            );
                             totalOTPay += otPay; otHours += finalHours; dayIncome += otPay; notes.push(`OT ${finalHours.toFixed(1)} ชม.`);
                         }
                     }
@@ -150,15 +177,29 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
                 if (maxDed > 0 && totalDeduction > maxDed) totalDeduction = maxDed;
 
                 let baseSalaryCalc = salaryType === 'monthly' ? salary : totalIncome;
-                if (salaryType === 'monthly') baseSalaryCalc += 0;
 
                 let sso = 0; let tax = 0;
-                if (freshDeductionProfile === 'sso' || freshDeductionProfile === 'sso_tax') sso = Math.min(baseSalaryCalc, 15000) * 0.05;
-                if (freshDeductionProfile === 'tax' || freshDeductionProfile === 'sso_tax') tax = baseSalaryCalc * 0.03;
+                if (freshDeductionProfile === 'sso' || freshDeductionProfile === 'sso_tax') {
+                    sso = PayrollCalculator.calculateSSO(baseSalaryCalc);
+                }
+                if (freshDeductionProfile === 'tax' || freshDeductionProfile === 'sso_tax') {
+                    // tax = baseSalaryCalc * 0.03;  // Older logic
+                    // If flat rate 3% is needed for contractors:
+                    tax = PayrollCalculator.toDecimal(baseSalaryCalc).times(0.03).toDecimalPlaces(2).toNumber();
+                    // Better to use calculateTax if progressive, but based on "tax" string, user might want WHT 3%. Assuming WHT.
+                }
 
-                const totalCustomIncome = customIncomes.reduce((s, i) => s + Number(i.amount), 0);
-                const totalCustomDeduction = customDeductions.reduce((s, i) => s + Number(i.amount), 0);
-                const netTotalCalc = baseSalaryCalc + totalOTPay + (salaryType === 'monthly' ? totalIncentive : 0) + totalCustomIncome - totalDeduction - sso - tax - totalCustomDeduction;
+                // 🎯 Calculate Net using new Calculator wrapper
+                const netTotalCalc = PayrollCalculator.calculateNet({
+                    salary: baseSalaryCalc,
+                    ot: totalOTPay,
+                    incentive: salaryType === 'monthly' ? totalIncentive : 0,
+                    sso: sso,
+                    tax: tax,
+                    deductions: totalDeduction,
+                    customIncomes: customIncomes,
+                    customDeducts: customDeductions
+                });
 
                 return {
                     id: user.id, userId: user.id, name: user.name || 'พนักงาน', role: user.position || 'พนักงาน', avatar: user.avatar || null,
@@ -178,7 +219,16 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
             setIsMonthPaid(false); // คำนวณใหม่ = เปิดงวดใหม่
             setLoading(false);
 
-        } catch (err) { console.error("Calc Error:", err); setLoading(false); alert("Error: " + err.message); }
+        } catch (err) {
+            console.error("Calc Error:", err);
+            setLoading(false);
+            Swal.fire({
+                icon: 'error',
+                title: 'เกิดข้อผิดพลาด',
+                text: err.message,
+                confirmButtonColor: '#2563EB'
+            });
+        }
     };
 
     const savePayslip = async (payslipData) => {
@@ -195,7 +245,27 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
     // 3. ฟังก์ชันปิดงวด (Confirm Payment)
     const confirmMonthPayment = async () => {
         if (payrollData.length === 0) return;
-        if (!window.confirm("ยืนยันการปิดงวดบัญชีเดือนนี้?\n\n- ข้อมูลจะถูกล็อกและแก้ไขไม่ได้\n- สถานะจะเปลี่ยนเป็น 'จ่ายแล้ว (Paid)'")) return;
+
+        const result = await Swal.fire({
+            title: 'ยืนยันการปิดงวดบัญชีเดือนนี้?',
+            html: `<div class="text-sm text-left">
+                    <p>- ข้อมูลจะถูกล็อกและแก้ไขไม่ได้</p>
+                    <p>- สถานะจะเปลี่ยนเป็น 'จ่ายแล้ว (Paid)'</p>
+                   </div>`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#2563EB',
+            cancelButtonColor: '#ef4444',
+            confirmButtonText: 'ยืนยันปิดงวด',
+            cancelButtonText: 'ยกเลิก',
+            customClass: {
+                popup: 'rounded-3xl',
+                confirmButton: 'rounded-xl px-6 py-2.5',
+                cancelButton: 'rounded-xl px-6 py-2.5'
+            }
+        });
+
+        if (!result.isConfirmed) return;
 
         setLoading(true);
         try {
@@ -213,11 +283,24 @@ export function usePayrollAdmin(companyId, selectedMonth = new Date()) {
             setPayrollData(prev => prev.map(p => ({ ...p, status: 'paid' })));
             setIsMonthPaid(true);
             setLoading(false);
-            alert("ปิดงวดเรียบร้อย! ข้อมูลถูกล็อกแล้ว 🔒");
+
+            Swal.fire({
+                icon: 'success',
+                title: 'ปิดงวดเรียบร้อย!',
+                text: 'ข้อมูลถูกล็อกแล้ว 🔒',
+                confirmButtonColor: '#2563EB',
+                timer: 2000,
+                showConfirmButton: false
+            });
         } catch (e) {
             console.error(e);
             setLoading(false);
-            alert("เกิดข้อผิดพลาด: " + e.message);
+            Swal.fire({
+                icon: 'error',
+                title: 'เกิดข้อผิดพลาด',
+                text: e.message,
+                confirmButtonColor: '#2563EB'
+            });
         }
     };
 

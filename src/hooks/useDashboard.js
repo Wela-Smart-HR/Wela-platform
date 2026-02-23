@@ -6,6 +6,10 @@ import { attendanceService } from '../di/attendanceDI';
 
 export function useDashboard(currentUser) {
   // --- STATE ข้อมูล Dashboard ---
+  const [absentAlert, setAbsentAlert] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
   // --- 1. NEW Centralized Logic ---
   const {
     todayRecord: hookRecord,
@@ -16,9 +20,13 @@ export function useDashboard(currentUser) {
   } = useTodayCheckIn(currentUser?.uid);
 
   // Map to Legacy Format for UI Compatibility
+  // Only show the record in the main widget if it belongs to today
+  // useTodayCheckIn already filters out completed past records from todayRecord
+  // But if it's a stuck past record, we need to explicitly hide it from the "Today" widget
+  const isTodayRecordStuck = isStuck && hookRecord?.id === staleCheckIn?.id;
   const todayRecord = {
-    in: hookRecord?.clockIn || null,
-    out: hookRecord?.clockOut || null
+    in: isTodayRecordStuck ? null : (hookRecord?.clockIn || null),
+    out: isTodayRecordStuck ? null : (hookRecord?.clockOut || null)
   };
 
   const missingPunch = isStuck && staleCheckIn ? {

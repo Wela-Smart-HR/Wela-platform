@@ -128,29 +128,48 @@ export const useSalaryCalculator = (records, schedules, config, currentMonth, us
             // 3. 🚨 คำนวณหักมาสาย
             if (clockInRecord && isWorkDay && schedule && schedule.startTime && status !== 'adjusted' && status !== 'on-time') {
                 // ... Logic คำนวณสายคงเดิม ...
-                const actualTime = clockInRecord.clockIn || (clockInRecord.createdAt?.toDate ? clockInRecord.createdAt.toDate() : clockInRecord.createdAt);
+                // ✅ FIX: Prioritize Stored Value (Prevent Timezone Issues)
+                // Use stored late minutes if available in DB
+                let storedLateMinutes = 0;
+                if (clockInRecord.late_minutes !== undefined && clockInRecord.late_minutes !== null) {
+                    storedLateMinutes = Number(clockInRecord.late_minutes);
+                } else if (clockInRecord.lateMinutes !== undefined && clockInRecord.lateMinutes !== null) {
+                    storedLateMinutes = Number(clockInRecord.lateMinutes);
+                }
 
-                const [schedH, schedM] = schedule.startTime.split(':').map(Number);
-                const standardTime = new Date(actualTime);
-                standardTime.setHours(schedH, schedM, 0, 0);
+                // If stored value exists and is valid (>=0), use it.
+                // Otherwise fallback to calculation (only if no stored value)
+                if (storedLateMinutes > 0) {
+                    lateMinutes = storedLateMinutes;
+                } else {
+                    // Fallback: Re-calculate manually (Legacy or missing data)
+                    const actualTime = clockInRecord.clockIn || (clockInRecord.createdAt?.toDate ? clockInRecord.createdAt.toDate() : clockInRecord.createdAt);
 
-                const diffMs = actualTime - standardTime;
+                    if (actualTime) {
+                        const [schedH, schedM] = schedule.startTime.split(':').map(Number);
+                        const standardTime = new Date(actualTime);
+                        standardTime.setHours(schedH, schedM, 0, 0);
 
-                if (diffMs > 0) {
-                    const diffMins = Math.floor(diffMs / 60000);
-                    if (diffMins > (config.gracePeriod || 0)) {
-                        lateMinutes = diffMins;
-                        status = 'late';
-
-                        let calcDeduction = (lateMinutes - (config.gracePeriod || 0)) * (config.deductionPerMinute || 0);
-                        if (config.maxDeduction > 0 && calcDeduction > config.maxDeduction) calcDeduction = config.maxDeduction;
-
-                        deduction = Math.round(calcDeduction);
-                        dailyIncome -= deduction;
-
-                        stats.totalLateMinutes += lateMinutes;
-                        stats.totalDeduction += deduction;
+                        const diffMs = actualTime - standardTime;
+                        if (diffMs > 0) {
+                            const diffMins = Math.floor(diffMs / 60000);
+                            lateMinutes = diffMins;
+                        }
                     }
+                }
+
+                // Apply Logic: Check Grace Period & Calculate Deduction
+                if (lateMinutes > (config.gracePeriod || 0)) {
+                    status = 'late';
+
+                    let calcDeduction = (lateMinutes - (config.gracePeriod || 0)) * (config.deductionPerMinute || 0);
+                    if (config.maxDeduction > 0 && calcDeduction > config.maxDeduction) calcDeduction = config.maxDeduction;
+
+                    deduction = Math.round(calcDeduction);
+                    dailyIncome -= deduction;
+
+                    stats.totalLateMinutes += lateMinutes;
+                    stats.totalDeduction += deduction;
                 }
             }
 

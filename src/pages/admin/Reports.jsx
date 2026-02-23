@@ -6,10 +6,11 @@ import {
     Monitor, Checks, X, CalendarCheck
 } from '@phosphor-icons/react';
 import { useAuth } from '../../contexts/AuthContext';
-// ✅ Import Hook จาก Features Architecture
+// Import Hook จาก Features Architecture
 import { useReportsAdmin } from '../../features/reports/useReportsAdmin';
 import { migrationService } from '../../features/migration/migration.service';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from 'recharts';
+import { DataMigrationTool } from '../../components/admin/DataMigrationTool';
 
 const IconMap = {
     Smiley: <Smiley weight="fill" />,
@@ -99,6 +100,11 @@ export default function Reports() {
                         <User weight="fill" /> เจาะลึกรายคน
                     </button> */}
                 </div>
+                
+                {/* Admin Tools Section - Hidden after seeding */}
+                {/* <div className="flex justify-end mb-4">
+                    <DataMigrationTool companyId={currentUser?.companyId} />
+                </div> */}
             </header>
 
             <main className="flex-1 px-6 pb-6 pt-2">

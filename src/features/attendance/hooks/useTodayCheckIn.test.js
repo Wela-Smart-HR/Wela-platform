@@ -1,20 +1,25 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, waitFor } from '@testing-library/react';
 import { useTodayCheckIn } from './useTodayCheckIn';
+import { onSnapshot } from 'firebase/firestore';
 
 // Mock Firebase Firestore
 vi.mock('@/shared/lib/firebase', () => ({
     db: {},
 }));
 
-vi.mock('firebase/firestore', () => ({
-    collection: vi.fn(),
-    query: vi.fn(),
-    where: vi.fn(),
-    orderBy: vi.fn(),
-    limit: vi.fn(),
-    onSnapshot: vi.fn(),
-}));
+vi.mock('firebase/firestore', () => {
+    const originalModule = vi.importActual('firebase/firestore');
+    return {
+        ...originalModule,
+        collection: vi.fn(),
+        query: vi.fn(),
+        where: vi.fn(),
+        orderBy: vi.fn(),
+        limit: vi.fn(),
+        onSnapshot: vi.fn(),
+    };
+});
 
 // Helper function: สร้าง Mock Data ของ Log
 const createMockLog = (clockIn, clockOut = null, hoursAgo = 0) => {
@@ -35,12 +40,8 @@ const createMockLog = (clockIn, clockOut = null, hoursAgo = 0) => {
 };
 
 describe('useTodayCheckIn Logic Tests', () => {
-    let mockOnSnapshot;
-
     beforeEach(() => {
         vi.clearAllMocks();
-        const { onSnapshot } = require('firebase/firestore');
-        mockOnSnapshot = onSnapshot;
     });
 
     afterEach(() => {
@@ -52,7 +53,7 @@ describe('useTodayCheckIn Logic Tests', () => {
     // --------------------------------------------------------------------------
     test('Should detect "Ghost Shift" (isStuck) when checked in > 20 hours', async () => {
         // Setup: จำลองว่า onSnapshot คืนค่า Log เข้างานเมื่อ 25 ชม. ที่แล้ว
-        mockOnSnapshot.mockImplementation((query, callback) => {
+        onSnapshot.mockImplementation((query, callback) => {
             callback(createMockLog(null, null, 25)); // เข้างานค้างไว้ 25 ชม.
             return vi.fn(); // unsubscribe function
         });
@@ -75,7 +76,7 @@ describe('useTodayCheckIn Logic Tests', () => {
     // --------------------------------------------------------------------------
     test('Should remain "Working" even after midnight', async () => {
         // Setup: เข้างานตอน 5 ทุ่มเมื่อวาน (7 ชม. ที่แล้ว - ยังไม่ถึง 20 ชม.)
-        mockOnSnapshot.mockImplementation((query, callback) => {
+        onSnapshot.mockImplementation((query, callback) => {
             callback(createMockLog(null, null, 7));
             return vi.fn();
         });
@@ -95,7 +96,7 @@ describe('useTodayCheckIn Logic Tests', () => {
     // --------------------------------------------------------------------------
     test('Should show completed when clocked out', async () => {
         // Setup: มี clock_out แล้ว
-        mockOnSnapshot.mockImplementation((query, callback) => {
+        onSnapshot.mockImplementation((query, callback) => {
             const now = new Date();
             callback({
                 docs: [{
@@ -125,7 +126,7 @@ describe('useTodayCheckIn Logic Tests', () => {
     // Scenario 4: No Records (พนักงานใหม่)
     // --------------------------------------------------------------------------
     test('Should handle empty records correctly', async () => {
-        mockOnSnapshot.mockImplementation((query, callback) => {
+        onSnapshot.mockImplementation((query, callback) => {
             callback({ docs: [], empty: true });
             return vi.fn();
         });

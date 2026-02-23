@@ -9,9 +9,13 @@ const calculateOTMinutes = (hours) => {
     return (h * 60).toFixed(0);
 };
 
+// ✅ ARCHITECTURE FIX: ป้องกันบั๊กคำนวณจาก String
 const calculateHourlyRate = (salary, dailyWage) => {
-    if (dailyWage > 0) return dailyWage / 8;
-    if (salary > 0) return (salary / 30) / 8;
+    const numDaily = Number(dailyWage) || 0;
+    const numSalary = Number(salary) || 0;
+    
+    if (numDaily > 0) return numDaily / 8;
+    if (numSalary > 0) return (numSalary / 30) / 8;
     return 62.5; // Fallback
 };
 
@@ -33,8 +37,18 @@ export default function EditShiftModal({
 }) {
     if (!isOpen || !editingShift) return null;
 
-    // Find Employee to get Salary/Wage
-    const employee = (activeEmployees || []).find(e => e.id === editingShift.employeeId) || {};
+    // ✅ ARCHITECTURE FIX: ดักจับทั้ง userId และ employeeId
+    const targetId = editingShift.userId || editingShift.employeeId;
+    
+    // ลองหาด้วย id ก่อน ถ้าไม่เจอให้ลองหาด้วย name
+    let employee = (activeEmployees || []).find(e => e.id === targetId || e.userId === targetId);
+    
+    if (!employee && editingShift.employeeName) {
+        employee = (activeEmployees || []).find(e => 
+            e.name?.trim().toLowerCase() === editingShift.employeeName?.trim().toLowerCase()
+        );
+    }
+    
     const hourlyRate = calculateHourlyRate(employee.salary, employee.dailyWage);
 
     const onPresetChange = (e) => {

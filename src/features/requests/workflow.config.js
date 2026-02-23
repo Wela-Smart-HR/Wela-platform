@@ -31,5 +31,30 @@ export const WORKFLOW_RULES = {
                 { role: 'supervisor', label: 'หัวหน้างาน (Supervisor)' }
             ]
         };
+    },
+
+    // Alias: 'retro' uses same rules as 'attendance-adjustment'
+    'retro': (data) => {
+        return {
+            conditions: {},
+            steps: [
+                { role: 'supervisor', label: 'หัวหน้างาน (Supervisor)' }
+            ]
+        };
+    },
+
+    /**
+     * Unscheduled Work Request
+     * เมื่อพนักงานทำงานโดยไม่มีตารางงาน (กะ) กำหนดไว้
+     * ต้องส่งคำขอให้ Admin อนุมัติเพื่อให้นับเป็นวันทำงานจริง
+     * เมื่ออนุมัติแล้ว ระบบจะสร้าง schedule doc ย้อนหลังอัตโนมัติ
+     */
+    'unscheduled-work': (data) => {
+        return {
+            conditions: {},
+            steps: [
+                { role: 'supervisor', label: 'หัวหน้างาน (Supervisor)' }
+            ]
+        };
     }
 };
