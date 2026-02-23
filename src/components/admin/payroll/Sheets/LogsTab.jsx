@@ -6,16 +6,16 @@ import timezone from 'dayjs/plugin/timezone';
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
-const COMPANY_TIMEZONE = 'Asia/Bangkok';/**
+const COMPANY_TIMEZONE = 'Asia/Bangkok';
+
+/**
  * LogsTab — Full-month attendance calendar for a payslip.
- * 
- * Merges separate clock-in / clock-out rows into ONE row per day.
+ * * Merges separate clock-in / clock-out rows into ONE row per day.
  * Fills in empty days (no attendance) so user sees every day in the period.
  * Shows: Date | In-Out Time | Income/Deduction details
- * 
- * @param {{ logs: Array, startDate: string, endDate: string }} props
+ * * @param {{ logs: Array, startDate: string, endDate: string }} props
  */
-export const LogsTab = ({ logs, startDate, endDate }) => {
+export const LogsTab = ({ logs, startDate, endDate, syncDeduct = false, deductionConfig = null }) => {
 
     // --- 1. Build a map of date -> merged log ---
     const logMap = {};
@@ -61,6 +61,17 @@ export const LogsTab = ({ logs, startDate, endDate }) => {
         if (log.otHours) entry.otHours += Number(log.otHours);
         if (log.income) entry.income += Number(log.income);
         if (log.deduction) entry.deduction += Number(log.deduction);
+        
+        // Store deduction breakdown for detailed display
+        // 🛡️ ARCHITECTURE FIX: เก็บโครงสร้าง Object ไว้เหมือนเดิม ห้ามแกะ .late ออกก่อนเวลาอันควร
+        if (log.deductionBreakdown) {
+            entry.deductionBreakdown = log.deductionBreakdown;
+        }
+        
+        // Store raw late minutes (before grace period) if available
+        if (log.rawLateMinutes) {
+            entry.rawLateMinutes = Number(log.rawLateMinutes);
+        }
 
         // Append notes
         if (log.note) {
@@ -138,7 +149,41 @@ export const LogsTab = ({ logs, startDate, endDate }) => {
                                                     <span className="text-red-500">{entry.checkOut || '-'}</span>
                                                 </div>
                                                 <div className="flex gap-1 mt-0.5 flex-wrap">
-                                                    {entry.status === 'late' && <span className="text-[9px] text-orange-500 font-bold bg-orange-50 px-1 rounded">สาย {entry.lateMinutes}m</span>}
+                                                    {entry.checkIn && (() => {
+                                                        const shiftStart = entry.scheduleStartTime || '09:30';
+                                                        const toMinutes = (timeStr) => {
+                                                            const [hours, minutes] = timeStr.split(':').map(Number);
+                                                            return hours * 60 + minutes;
+                                                        };
+                                                        const checkInMinutes = toMinutes(entry.checkIn);
+                                                        const shiftMinutes = toMinutes(shiftStart);
+                                                        const actualLateMinutes = Math.max(0, checkInMinutes - shiftMinutes);
+                                                        
+                                                        // 🔥 FIX: ใช้ deductionBreakdown.late ที่ส่งมาจาก Backend เต็มๆ โดยไม่พัง
+                                                        const deductionInfo = entry.deductionBreakdown?.late;
+                                                        const deductedMinutes = deductionInfo?.minutes || 0;
+                                                        const deductionAmount = deductionInfo?.amount || 0;
+                                                        
+                                                        return (
+                                                            <>
+                                                                {actualLateMinutes > 0 && (
+                                                                    <span className="text-[9px] text-orange-500 font-bold bg-orange-50 px-1 rounded" title={`มา ${entry.checkIn} (สายจาก ${shiftStart})`}>
+                                                                        สาย {actualLateMinutes}นาที
+                                                                    </span>
+                                                                )}
+                                                                {syncDeduct && deductedMinutes > 0 && (
+                                                                    <span className="text-[9px] text-red-500 font-bold bg-red-50 px-1 rounded">
+                                                                        หัก {deductedMinutes}นาที (-{fmt(deductionAmount)}฿)
+                                                                    </span>
+                                                                )}
+                                                                {syncDeduct && actualLateMinutes > 0 && deductedMinutes === 0 && (
+                                                                    <span className="text-[9px] text-gray-400 font-bold bg-gray-100 px-1 rounded" title="ในช่วง grace period">
+                                                                        หัก 0นาที (ใน grace period)
+                                                                    </span>
+                                                                )}
+                                                            </>
+                                                        );
+                                                    })()}
                                                     {entry.otHours > 0 && <span className="text-[9px] text-blue-500 font-bold bg-blue-50 px-1 rounded">OT {entry.otHours}h</span>}
                                                 </div>
                                             </div>

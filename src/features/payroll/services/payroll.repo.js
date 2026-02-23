@@ -16,6 +16,58 @@ dayjs.extend(isBetween);
 const COMPANY_TIMEZONE = 'Asia/Bangkok';
 
 /**
+ * Calculate late minutes with current grace period and shift-specific rules
+ * @param {string} checkIn - Check-in time in HH:mm format
+ * @param {string} scheduleStart - Schedule start time in HH:mm format
+ * @param {number} gracePeriod - Grace period in minutes
+ * @param {Object} shiftConfig - Shift-specific configuration (optional)
+ * @returns {number} Late minutes after applying grace period
+ */
+function calculateLateMinutesWithGracePeriod(checkIn, scheduleStart, gracePeriod = 0, shiftConfig = null) {
+    if (!checkIn) return 0;
+    
+    // Use shift-specific rules if available, otherwise use provided parameters
+    const effectiveGracePeriod = shiftConfig?.gracePeriod ?? gracePeriod;
+    const effectiveScheduleStart = shiftConfig?.startTime ?? scheduleStart;
+    
+    // Convert times to minutes since midnight
+    const toMinutes = (timeStr) => {
+        const [hours, minutes] = timeStr.split(':').map(Number);
+        return hours * 60 + minutes;
+    };
+    
+    const checkInMinutes = toMinutes(checkIn);
+    const scheduleMinutes = toMinutes(effectiveScheduleStart);
+    
+    // Calculate late minutes
+    const lateMinutes = Math.max(0, checkInMinutes - scheduleMinutes);
+    
+    // Apply grace period
+    return Math.max(0, lateMinutes - effectiveGracePeriod);
+}
+
+/**
+ * Get shift configuration for a specific employee and date
+ * @param {Object} shiftConfigs - All shift configurations from company
+ * @param {Object} employee - Employee data
+ * @param {Object} schedule - Schedule data for the specific date
+ * @param {Object} defaultShift - Default shift configuration
+ * @returns {Object} Shift configuration to use
+ */
+function getShiftConfig(shiftConfigs, employee, schedule, defaultShift) {
+    // Priority: 1. Schedule-specific shift, 2. Employee default shift, 3. Company default shift
+    if (schedule?.shiftType && shiftConfigs[schedule.shiftType]) {
+        return { ...defaultShift, ...shiftConfigs[schedule.shiftType] };
+    }
+    
+    if (employee?.defaultShift && shiftConfigs[employee.defaultShift]) {
+        return { ...defaultShift, ...shiftConfigs[employee.defaultShift] };
+    }
+    
+    return defaultShift;
+}
+
+/**
  * คำนวณเวลา OT จริงๆ โดยตรวจสอบเวลาออกงานจริง (รองรับกะข้ามคืน)
  * @param {string} checkIn - เวลาเข้างาน (HH:mm)
  * @param {string} checkOut - เวลาออกงาน (HH:mm) 
@@ -90,7 +142,6 @@ export const PayrollRepo = {
         // 2. Fetch Data (Parallel)
         console.log("Fetching data for cycle:", { companyId, startDay, endDay });
 
-        // Fix: Query BOTH Legacy ('attendance'), New ('attendance_logs'), AND Schedules collections
         const [usersSnap, legacySnap, newLogsSnap, schedulesSnap, companySnap] = await Promise.all([
             getDocs(query(collection(db, 'users'), where('companyId', '==', companyId))),
             getDocs(query(collection(db, 'attendance'),
@@ -100,10 +151,6 @@ export const PayrollRepo = {
             )),
             getDocs(query(collection(db, 'attendance_logs'),
                 where('company_id', '==', companyId)
-                // ⚠️ NO Firestore date range here — old approved-adjustment records
-                // were stored as '2026-02-01T09:00:00+07:00' (offset format).
-                // Firestore string comparison is LEXICOGRAPHIC: '+07:00' records fall
-                // OUTSIDE any UTC 'Z'-based range. We filter client-side instead.
             )),
             getDocs(query(collection(db, 'schedules'),
                 where('companyId', '==', companyId),
@@ -115,19 +162,25 @@ export const PayrollRepo = {
 
         const companyConfig = companySnap.exists() ? companySnap.data() : {};
 
-        // Robust Merge of Deduction Rules
-        // Source of truth can be scattered in 'deduction' (consolidated), 'payrollConfig', or 'attendanceConfig'
         const deductionConfig = {
             ...companyConfig.deduction,
             deductionPerMinute: companyConfig.payrollConfig?.deductionPerMinute ?? companyConfig.deduction?.deductionPerMinute,
             maxDeduction: companyConfig.payrollConfig?.maxDeduction ?? companyConfig.deduction?.maxDeduction,
-            gracePeriod: companyConfig.attendanceConfig?.gracePeriod ?? companyConfig.deduction?.gracePeriod
+            gracePeriod: companyConfig.deduction?.gracePeriod ?? companyConfig.attendanceConfig?.gracePeriod ?? 0
+        };
+
+        const shiftConfigs = companyConfig.shifts || {};
+        const defaultShift = {
+            startTime: '09:30',
+            endTime: '18:00',
+            gracePeriod: deductionConfig.gracePeriod,
+            deductionPerMinute: deductionConfig.deductionPerMinute,
+            maxDeduction: deductionConfig.maxDeduction
         };
 
         let employees = usersSnap.docs
             .map(d => {
                 const data = d.data();
-                // Normalize salaryType (Thai -> English)
                 let sType = data.salaryType || data.type || 'monthly';
                 if (sType === 'รายวัน') sType = 'daily';
                 else if (sType === 'รายเดือน') sType = 'monthly';
@@ -136,76 +189,40 @@ export const PayrollRepo = {
             })
             .filter(u => u.role !== 'admin' && u.active !== false && u.status !== 'resigned');
 
-        // Filter by Target Group (daily / monthly)
         if (cycleData.target && cycleData.target !== 'all') {
             employees = employees.filter(emp => emp.salaryType === cycleData.target);
         }
 
-        // Deduplicate by Name (Handle dirty data)
         const seenNames = new Set();
         employees = employees.filter(emp => {
             const normalizedName = emp.name?.trim();
             if (!normalizedName) return false;
             if (seenNames.has(normalizedName)) {
-                console.warn("Duplicate employee removed:", normalizedName, emp.id);
                 return false;
             }
             seenNames.add(normalizedName);
             return true;
         });
 
-        // Parse Logs
         const legacyLogs = legacySnap.docs.map(d => d.data());
         const allNewLogs = newLogsSnap.docs.map(d => d.data());
         const schedulesData = schedulesSnap.docs.map(d => d.data());
 
-        // Client-side date filter for attendance_logs
-        // ✅ BULLETPROOF: Use dayjs core functions instead of String manipulation
-        // แปลง startDay (เช่น "2026-02-01") เป็นจุดเริ่มต้นของวันนั้นในเวลาประเทศไทย
         const rangeStart = dayjs.tz(startDay, COMPANY_TIMEZONE).startOf('day');
-        // แปลง endDay (เช่น "2026-02-15") เป็นจุดสิ้นสุดของวันนั้นในเวลาประเทศไทย
         const rangeEnd = dayjs.tz(endDay, COMPANY_TIMEZONE).endOf('day');
 
         const newLogs = allNewLogs.filter(log => {
             if (!log.clock_in) return false;
-
-            // 1. Normalize ข้อมูลให้เป็น dayjs object (รองรับทั้ง Timestamp และ String)
             let clockInDayjs;
             if (log.clock_in.toDate) {
-                clockInDayjs = dayjs(log.clock_in.toDate()); // Firestore Timestamp
+                clockInDayjs = dayjs(log.clock_in.toDate());
             } else {
-                clockInDayjs = dayjs(log.clock_in); // String format
+                clockInDayjs = dayjs(log.clock_in);
             }
-
             if (!clockInDayjs.isValid()) return false;
-
-            // 2. เปรียบเทียบเวลาโดยใช้ .isBetween() อย่างปลอดภัย
-            // '[]' หมายถึง inclusive (นับรวมขอบเขตหัวท้ายด้วย)
             return clockInDayjs.isBetween(rangeStart, rangeEnd, 'millisecond', '[]');
         });
 
-        console.log('Payroll createCycle:', {
-            legacy: legacyLogs.length,
-            new: newLogs.length,
-            schedules: schedulesData.length,
-            totalNew: allNewLogs.length,
-            dateRange: { startDay, endDay },
-            timezoneInfo: { companyTimezone: COMPANY_TIMEZONE, rangeStart: rangeStart.format(), rangeEnd: rangeEnd.format() },
-            sampleNewLogDates: allNewLogs.slice(0, 5).map(l => ({
-                clockIn: l.clock_in,
-                formatted: l.clock_in?.toDate ? l.clock_in.toDate().toISOString() : l.clock_in,
-                isValid: l.clock_in ? (dayjs(l.clock_in.toDate ? l.clock_in.toDate() : l.clock_in).isValid()) : false
-            })),
-            sampleSchedules: schedulesData.slice(0, 3).map(s => ({
-                date: s.date,
-                userId: s.userId,
-                otType: s.otType,
-                otHours: s.otHours,
-                incentive: s.incentive
-            }))
-        });
-
-        // 3. Batch Creation
         const batch = writeBatch(db);
         const cycleId = `${companyId}_${cycleData.month}_${cycleData.period}`;
         const cycleRef = doc(db, 'payroll_cycles', cycleId);
@@ -214,19 +231,15 @@ export const PayrollRepo = {
         let count = 0;
 
         employees.forEach(emp => {
-            // -- Core Calculation Logic --
             const baseSalary = Number(emp.salary) || 0;
             const salaryType = emp.salaryType || 'monthly';
             const dailyRate = salaryType === 'daily' ? baseSalary : (baseSalary / 30);
             const hourlyRate = dailyRate / 8;
 
-            // map to store merged daily records
             const dayMap = {};
 
-            // 1. Process Legacy Logs (Base)
             const empLegacy = legacyLogs.filter(a => a.userId === emp.id);
             const empSchedules = schedulesData.filter(s => s.userId === emp.id);
-            console.log(`[Payroll][${emp.name}] legacy matched: ${empLegacy.length}/${legacyLogs.length}, new matched: ${newLogs.filter(a => a.employee_id === emp.id).length}/${newLogs.length}, schedules matched: ${empSchedules.length}/${schedulesData.length}`);
 
             empLegacy.forEach(log => {
                 const dateKey = log.date;
@@ -246,7 +259,6 @@ export const PayrollRepo = {
                 const entry = dayMap[dateKey];
 
                 if (log.type === 'clock-in') {
-                    // Extract HH:mm from localTimestamp (e.g. "2026-02-06T08:30:00")
                     entry.checkIn = log.localTimestamp?.split('T')[1]?.substring(0, 5) || null;
                     entry.status = log.status || entry.status;
                 }
@@ -254,11 +266,7 @@ export const PayrollRepo = {
                     entry.checkOut = log.localTimestamp?.split('T')[1]?.substring(0, 5) || null;
                 }
 
-                // ✅ Handle retro-approved / retro records
-                // ⚠️ Old approval code stored clockOut as Firestore Timestamp (NOT "HH:mm" string)
-                //    Assigning Timestamp to entry.checkOut → UI displays nothing
                 if (log.type === 'retro-approved' || log.type === 'retro' || log.type === 'adjustment') {
-                    // Helper: converts Firestore Timestamp OR "HH:mm" string → "HH:mm" or null
                     const toTimeStr = (val) => {
                         if (!val) return null;
                         if (typeof val === 'string') return val.substring(0, 5);
@@ -272,30 +280,19 @@ export const PayrollRepo = {
                     const rawOut = log.timeOut || log.clockOut || log.data?.timeOut || log.data?.clockOut;
                     const t = toTimeStr(rawIn);
                     const o = toTimeStr(rawOut);
-                    console.log('[Retro] date:', log.date, '→ checkIn:', t, ', checkOut:', o);
                     if (t) entry.checkIn = t;
                     if (o) entry.checkOut = o;
                     entry.status = log.status || 'present';
                 }
 
-                // Accumulate from ANY doc type
                 if (log.lateMinutes) entry.lateMinutes += Number(log.lateMinutes);
                 if (log.otHours) entry.otHours += Number(log.otHours);
             });
 
-            // 2. Process New Logs (Overlay - Priorities over legacy if collision)
-            // But usually dates won't overlap if migration is clean.
-            // If overlap, we trust New System? Or Accumulate?
-            // Safer to overwrite fields if exists, as New System is "Corrected".
-
             const empNew = newLogs.filter(a => a.employee_id === emp.id);
             empNew.forEach(log => {
                 if (!log.clock_in) return;
-
                 const d = log.clock_in.toDate ? log.clock_in.toDate() : new Date(log.clock_in);
-
-                // ✅ Always extract date in Asia/Bangkok (UTC+7) — prevents "previous day" bug
-                // e.g. UTC "2026-02-01T02:00:00Z" = Thai "2026-02-01 09:00" → dateKey "2026-02-01" ✓
                 const dateKey = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(d);
 
                 if (!dayMap[dateKey]) {
@@ -304,19 +301,18 @@ export const PayrollRepo = {
                         userId: emp.id,
                         checkIn: null,
                         checkOut: null,
-                        status: log.status || 'present', // Use log status
+                        status: log.status || 'present',
                         lateMinutes: 0,
                         otHours: 0
                     };
                 }
                 const entry = dayMap[dateKey];
 
-                // ✅ Extract HH:mm in Asia/Bangkok — works for both UTC 'Z' and '+07:00' formats
                 const timeStr = new Intl.DateTimeFormat('en-GB', {
                     timeZone: 'Asia/Bangkok',
                     hour: '2-digit', minute: '2-digit', hour12: false
                 }).format(d);
-                entry.checkIn = timeStr; // "HH:mm"
+                entry.checkIn = timeStr;
 
                 if (log.clock_out) {
                     const outD = log.clock_out.toDate ? log.clock_out.toDate() : new Date(log.clock_out);
@@ -327,18 +323,11 @@ export const PayrollRepo = {
                     entry.checkOut = outStr;
                 }
 
-                // Map Fields (New -> Legacy Internal)
                 entry.lateMinutes += Number(log.late_minutes || 0);
-
-                // TODO: OT Hours if available in future
-                // entry.otHours = Number(log.ot_hours || 0);
             });
 
-            // 3. Process Schedules (Overlay - Priority over attendance)
-            // ข้อมูลจาก Schedule มีความสำคัญสูงสุดสำหรับ OT และ Incentive
             empSchedules.forEach(schedule => {
                 if (!schedule.date) return;
-
                 const dateKey = schedule.date;
 
                 if (!dayMap[dateKey]) {
@@ -354,9 +343,7 @@ export const PayrollRepo = {
                 }
                 const entry = dayMap[dateKey];
 
-                // อัปเดตข้อมูลจาก Schedule (มีความสำคัญสูงกว่า attendance)
                 if (schedule.type === 'work') {
-                    // เก็บเวลาเข้า-ออกจาก schedule ไว้เป็น shift times
                     entry.scheduleStartTime = schedule.startTime || null;
                     entry.scheduleEndTime = schedule.endTime || null;
                 } else if (schedule.type === 'leave') {
@@ -365,7 +352,6 @@ export const PayrollRepo = {
                     entry.status = 'off';
                 }
 
-                // บันทึกข้อมูล OT และ Incentive จาก Schedule
                 entry.scheduleOT = {
                     hasOT: schedule.otType ? true : false,
                     otType: schedule.otType || null,
@@ -374,13 +360,11 @@ export const PayrollRepo = {
                 entry.scheduleIncentive = Number(schedule.incentive) || 0;
             });
 
-            const empLogs = Object.values(dayMap); // 1 row per day merged
-            console.log(`[Payroll][${emp.name}] dayMap has ${empLogs.length} days:`, empLogs.map(l => `${l.date}: ${l.checkIn || '?'}→${l.checkOut || '?'}`));
+            const empLogs = Object.values(dayMap);
 
-            // STEP 2: Calculate totals & enrich each day
             let workDays = 0;
             let totalOtHours = 0;
-            let totalOtPay = 0; // ✅ เพิ่มตัวแปรนี้เพื่อเก็บยอดเงิน OT ที่แท้จริง
+            let totalOtPay = 0;
             let totalIncentive = 0;
             let totalLateMinutes = 0;
             let totalDeductionAmount = 0;
@@ -390,51 +374,25 @@ export const PayrollRepo = {
                 let logDeduction = 0;
                 let logNotes = [];
 
-                // Count work days (now 1 record = 1 day, safe)
                 if (log.status !== 'absent' && log.checkIn) workDays++;
-
-                // Track Totals
                 if (log.lateMinutes > 0) totalLateMinutes += log.lateMinutes;
                 if (log.otHours > 0) totalOtHours += log.otHours;
 
-                // --- Per-Day Financials for auditing ---
-                // 1. Daily Wage
                 if (salaryType === 'daily' && log.status !== 'absent' && log.checkIn) {
                     logIncome += dailyRate;
                 }
 
-                // 2. OT Income (จาก schedules - ตรวจสอบกับเวลาเข้า-ออกจริง)
                 if (log.scheduleOT && log.scheduleOT.hasOT && log.scheduleOT.otHours > 0) {
-                    // ใช้เวลาเข้า-ออกจริงจาก attendance มาตรวจสอบ OT
-                    // shiftEnd คือเวลาออกกะมาตรฐาน - ถ้าไม่มี scheduleEndTime ให้ใช้เวลามาตรฐาน 18:00
-                    const shiftEnd = log.scheduleEndTime || "18:00"; // ใช้เวลาออกกะมาตรฐานถ้าไม่มี scheduleEndTime
+                    const shiftEnd = log.scheduleEndTime || "18:00"; 
                     
-                    console.log(`[OT Debug] Date: ${log.date}`, {
-                        hasOT: log.scheduleOT.hasOT,
-                        otHours: log.scheduleOT.otHours,
-                        otType: log.scheduleOT.otType,
-                        checkIn: log.checkIn,
-                        checkOut: log.checkOut,
-                        scheduleEndTime: log.scheduleEndTime,
-                        shiftEnd: shiftEnd, // เพิ่ม shiftEnd ที่ใช้จริง
-                        hourlyRate: hourlyRate
-                    });
-                    
-                    // คำนวณเวลา OT จริงๆ โดยตรวจสอบเวลาออกงานจริง
                     const actualOTHours = calculateActualOTHours(
-                        log.checkIn,      // เวลาเข้าจริงจาก attendance
-                        log.checkOut,     // เวลาออกจริงจาก attendance  
-                        shiftEnd,        // เวลาออกกะมาตรฐาน (18:00 ถ้าไม่มี scheduleEndTime)
-                        log.scheduleOT.otHours  // OT ที่กำหนดใน schedule
+                        log.checkIn,
+                        log.checkOut,
+                        shiftEnd,
+                        log.scheduleOT.otHours
                     );
                     
-                    console.log(`[OT Debug] Result:`, {
-                        actualOTHours: actualOTHours,
-                        reason: actualOTHours === 0 ? 'ออกงานไม่เกินเวลาหรือข้อมูลไม่ครบ' : 'มี OT'
-                    });
-                    
                     if (actualOTHours > 0) {
-                        // หา OT type จาก company config
                         const otType = companyConfig.otTypes?.find(ot => ot.id === log.scheduleOT.otType);
                         const multiplier = otType?.rate || 1.5;
                         const otAmt = actualOTHours * hourlyRate * multiplier;
@@ -442,25 +400,75 @@ export const PayrollRepo = {
                         logNotes.push(`OT ${actualOTHours.toFixed(1)}h (x${multiplier}, กำหนด ${log.scheduleOT.otHours}h)`);
                         
                         totalOtHours += actualOTHours;
-                        totalOtPay += otAmt; // ✅ ARCHITECTURE FIX: สะสมยอดเงินจาก Rate จริงที่นี่!
+                        totalOtPay += otAmt; 
                     } else {
                         logNotes.push(`OT 0h (ออกงานไม่เกินเวลา, กำหนด ${log.scheduleOT.otHours}h)`);
                     }
                 }
 
-                // 3. Incentive Income (จาก schedules)
                 if (log.scheduleIncentive && log.scheduleIncentive > 0) {
                     logIncome += log.scheduleIncentive;
                     logNotes.push(`เบี้ยขยัน ${log.scheduleIncentive}`);
                     totalIncentive += log.scheduleIncentive;
                 }
 
-                // 4. Late Deduction
-                if (cycleData.syncDeduct && log.lateMinutes > 0) {
-                    const fine = PayrollCalculator.calculateLateDeduction(log.lateMinutes, deductionConfig);
-                    logDeduction += fine;
-                    if (fine > 0) logNotes.push(`สาย ${log.lateMinutes} นาที`);
-                    totalDeductionAmount += fine;
+                // 
+                let dailyDeductionMinutes = 0;
+                let dailyDeductionAmount = 0;
+
+                if (cycleData.syncDeduct && log.checkIn) {
+                    console.log(' Deduction Debug - Employee:', emp.name, 'Date:', log.date);
+                    console.log('  syncDeduct:', cycleData.syncDeduct);
+                    console.log('  checkIn:', log.checkIn);
+                    
+                    const shiftConfig = getShiftConfig(shiftConfigs, emp, log, defaultShift);
+                    console.log('  shiftConfig:', shiftConfig);
+                    
+                    // 
+                    const effectiveStartTime = log.scheduleStartTime || shiftConfig.startTime || '09:30';
+                    const effectiveGracePeriod = Number(shiftConfig.gracePeriod) || 0;
+                    
+                    console.log('  effectiveStartTime:', effectiveStartTime);
+                    console.log('  effectiveGracePeriod:', effectiveGracePeriod);
+                    
+                    const actualLateMinutes = calculateLateMinutesWithGracePeriod(
+                        log.checkIn, 
+                        effectiveStartTime, 
+                        effectiveGracePeriod,
+                        shiftConfig
+                    );
+                    
+                    console.log('  actualLateMinutes:', actualLateMinutes);
+                    
+                    if (actualLateMinutes > 0) {
+                        const shiftDeductionConfig = {
+                            gracePeriod: effectiveGracePeriod,
+                            deductionPerMinute: Number(shiftConfig.deductionPerMinute) || 0,
+                            maxDeduction: Number(shiftConfig.maxDeduction) || 0
+                        };
+                        
+                        console.log('  shiftDeductionConfig:', shiftDeductionConfig);
+                        
+                        const fine = PayrollCalculator.calculateLateDeduction(actualLateMinutes, shiftDeductionConfig);
+                        
+                        console.log('  calculated fine:', fine);
+                        
+                        logDeduction += fine;
+                        logNotes.push(` ${actualLateMinutes} (${effectiveStartTime}+${effectiveGracePeriod}m)`);
+                        totalDeductionAmount += fine;
+
+                        // 
+                        dailyDeductionMinutes = actualLateMinutes;
+                        dailyDeductionAmount = fine;
+                        
+                        console.log('  Deduction applied:', fine);
+                    } else {
+                        console.log('  No deduction - actualLateMinutes = 0');
+                    }
+                } else {
+                    console.log(' Deduction Debug - Employee:', emp.name, 'Date:', log.date);
+                    console.log('  syncDeduct:', cycleData.syncDeduct, 'checkIn:', log.checkIn);
+                    console.log('  Deduction skipped - syncDeduct false or no checkIn');
                 }
 
                 return {
@@ -468,7 +476,6 @@ export const PayrollRepo = {
                     income: logIncome > 0 ? logIncome : 0,
                     deduction: logDeduction > 0 ? logDeduction : 0,
                     note: logNotes.join(', '),
-                    // เพิ่มรายละเอียดสำหรับการแสดงผลใน payroll logs
                     incomeBreakdown: {
                         dailyWage: (salaryType === 'daily' && log.status !== 'absent' && log.checkIn) ? dailyRate : 0,
                         ot: (log.scheduleOT && log.scheduleOT.hasOT && log.scheduleOT.otHours > 0) ? {
@@ -476,21 +483,20 @@ export const PayrollRepo = {
                             actual: calculateActualOTHours(log.checkIn, log.checkOut, log.scheduleEndTime, log.scheduleOT.otHours),
                             rate: companyConfig.otTypes?.find(ot => ot.id === log.scheduleOT.otType)?.rate || 1.5,
                             amount: (log.scheduleOT && log.scheduleOT.hasOT && log.scheduleOT.otHours > 0) ? 
-                                calculateActualOTHours(log.checkIn, log.checkOut, log.scheduleEndTime, log.scheduleOT.otHours) * 
-                                hourlyRate * (companyConfig.otTypes?.find(ot => ot.id === log.scheduleOT.otType)?.rate || 1.5) : 0
+                                calculateActualOTHours(log.checkIn, log.checkOut, log.scheduleEndTime, log.scheduleOT.otHours) * hourlyRate * (companyConfig.otTypes?.find(ot => ot.id === log.scheduleOT.otType)?.rate || 1.5) : 0
                         } : null,
                         incentive: (log.scheduleIncentive && log.scheduleIncentive > 0) ? log.scheduleIncentive : 0
                     },
+                    // 🛡️ ARCHITECTURE FIX: ส่ง object ตรงๆ ห้ามใช้ function ซ้อนทับให้เปลือง memory
                     deductionBreakdown: {
-                        late: (cycleData.syncDeduct && log.lateMinutes > 0) ? {
-                            minutes: log.lateMinutes,
-                            amount: PayrollCalculator.calculateLateDeduction(log.lateMinutes, deductionConfig)
+                        late: (dailyDeductionMinutes > 0) ? {
+                            minutes: dailyDeductionMinutes,
+                            amount: dailyDeductionAmount
                         } : null
                     }
                 };
             });
 
-            // Financials
             let salaryPay = baseSalary;
             if (salaryType === 'monthly') {
                 if (cycleData.period === 'first' || cycleData.period === 'second') {
@@ -500,20 +506,9 @@ export const PayrollRepo = {
                 salaryPay = workDays * dailyRate;
             }
 
-            // OT Calculation (Total Level)
-            // 🚨 ลบของเดิมทิ้ง: 
-            // let otPay = 0;
-            // if (cycleData.syncOT && totalOtHours > 0) {
-            //     otPay = totalOtHours * hourlyRate * 1.5;
-            // }
-
-            // ✅ ใช้ของใหม่: นำยอดที่สะสมไว้มาใช้เลย
             let otPay = cycleData.syncOT ? totalOtPay : 0;
-
-            // Deduction Calculation (Sum of Daily Deductions respects daily caps / grace periods)
             let deductionAmount = totalDeductionAmount;
 
-            // Tax & SSO: Only if profile enabled
             let sso = 0;
             let tax = 0;
             const dedProfile = emp.deductionProfile || 'none';
@@ -521,7 +516,6 @@ export const PayrollRepo = {
             if (dedProfile === 'sso' || dedProfile === 'sso_tax') {
                 sso = PayrollCalculator.calculateSSO(baseSalary);
             }
-            // Tax: 3% Fixed (As per legacy logic request)
             if (['tax', 'wht', 'sso_tax'].includes(dedProfile)) {
                 tax = PayrollCalculator.calculateTax(salaryPay, 0.03);
             }
@@ -538,7 +532,6 @@ export const PayrollRepo = {
             totalNet += net;
             count++;
 
-            // Create Payslip Doc
             const payslipId = `${emp.id}_${cycleId}`;
             const payslipRef = doc(db, 'payslips', payslipId);
 
@@ -569,18 +562,16 @@ export const PayrollRepo = {
                 payments: [],
                 paymentStatus: 'pending',
                 paidAmount: 0,
-                logsSnapshot: enrichedLogs, // Save enriched logs
+                logsSnapshot: enrichedLogs, 
                 updatedAt: serverTimestamp()
             });
         });
 
-        // Generate human-readable title
         const periodMap = { 'full': 'ทั้งเดือน', 'first': 'ครึ่งเดือนแรก', 'second': 'ครึ่งเดือนหลัง' };
         const mObj = new Date(year, month - 1, 1);
         const monthName = mObj.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
         const cycleTitle = `งวด ${monthName} (${periodMap[cycleData.period] || 'ทั้งเดือน'})`;
 
-        // Save Cycle
         batch.set(cycleRef, {
             ...cycleData,
             id: cycleId,
@@ -590,6 +581,8 @@ export const PayrollRepo = {
             summary: { totalNet, totalPaid: 0, count },
             startDate: startDay,
             endDate: endDay,
+            syncDeduct: cycleData.syncDeduct || false,
+            syncOT: cycleData.syncOT || false,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
         });
@@ -598,24 +591,16 @@ export const PayrollRepo = {
         return cycleId;
     },
 
-    /**
-     * Delete a Cycle and ALL its Payslips (Clean Slate)
-     * ใช้สำหรับลบรอบบัญชีที่สร้างผิดหรือข้อมูลซ้ำ
-     * @param {string} cycleId 
-     */
     async deleteCycle(cycleId) {
-        // 1. Find all payslips for this cycle
         const q = query(collection(db, 'payslips'), where('cycleId', '==', cycleId));
         const snap = await getDocs(q);
 
-        // 2. Batch delete all payslips + cycle doc
         const batch = writeBatch(db);
 
         snap.docs.forEach(d => {
             batch.delete(doc(db, 'payslips', d.id));
         });
 
-        // Delete the cycle itself
         batch.delete(doc(db, 'payroll_cycles', cycleId));
 
         await batch.commit();
@@ -623,30 +608,21 @@ export const PayrollRepo = {
         return { deletedPayslips: snap.docs.length };
     },
 
-    /**
-     * Lock a Cycle (ปิดงวด - Prevent further edits)
-     * Updates cycle status to 'locked' and all payslips' paymentStatus to 'locked'
-     * @param {string} cycleId 
-     */
     async lockCycle(cycleId) {
-        // 1. Get all payslips for this cycle
         const q = query(
             collection(db, 'payslips'),
             where('cycleId', '==', cycleId)
         );
         const snap = await getDocs(q);
 
-        // 2. Batch update
         const batch = writeBatch(db);
 
-        // Lock the cycle itself
         batch.update(doc(db, 'payroll_cycles', cycleId), {
             status: 'locked',
             lockedAt: serverTimestamp(),
             updatedAt: serverTimestamp()
         });
 
-        // Lock all payslips
         snap.docs.forEach(d => {
             batch.update(doc(db, 'payslips', d.id), {
                 paymentStatus: 'locked',
@@ -658,9 +634,6 @@ export const PayrollRepo = {
         console.log(`Locked cycle ${cycleId} and ${snap.docs.length} payslips`);
     },
 
-    /**
-     * Get Cycles for Company
-     */
     async getCycles(companyId) {
         const q = query(
             collection(db, 'payroll_cycles'),
@@ -671,43 +644,36 @@ export const PayrollRepo = {
         return snap.docs.map(d => ({ id: d.id, ...d.data() }));
     },
 
-    /**
-     * Get Payslips for a Cycle
-     */
     async getPayslips(cycleId) {
         const q = query(
             collection(db, 'payslips'),
             where('cycleId', '==', cycleId)
         );
         const snap = await getDocs(q);
-        return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        const payslips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        const cycleRef = doc(db, 'payroll_cycles', cycleId);
+        const cycleSnap = await getDoc(cycleRef);
+        const cycleData = cycleSnap.exists() ? cycleSnap.data() : { syncDeduct: false };
+        
+        return payslips.map(payslip => ({
+            ...payslip,
+            cycleData: cycleData
+        }));
     },
 
-    /**
-     * Update Payslip (Alias for savePayslip for clearer semantics in UI)
-     */
     async updatePayslip(payslipId, data) {
         return this.savePayslip(data);
     },
 
-    /**
-     * Save Payslip (Snapshot)
-     * @param {Object} payslip 
-     */
     async savePayslip(payslip) {
         const ref = doc(db, 'payslips', payslip.id);
-        // Ensure financials are numbers (not Decimals) for Firestore
         await setDoc(ref, {
             ...payslip,
             updatedAt: serverTimestamp()
         }, { merge: true });
     },
 
-    /**
-     * Add Payment with Transaction (Concurrency Control)
-     * @param {string} payslipId 
-     * @param {Object} payment { amount, date, method, note }
-     */
     async addPayment(payslipId, payment) {
         const psRef = doc(db, 'payslips', payslipId);
 
@@ -719,7 +685,6 @@ export const PayrollRepo = {
             const currentPaid = (data.payments || []).reduce((acc, p) => acc + p.amount, 0);
             const netTotal = data.financials?.net || 0;
 
-            // Validation: Cannot pay more than remaining
             if (currentPaid + payment.amount > netTotal) {
                 throw new Error(`ยอดจ่ายเกิน! (คงเหลือ: ${netTotal - currentPaid}, จ่าย: ${payment.amount})`);
             }
@@ -738,20 +703,13 @@ export const PayrollRepo = {
         });
     },
 
-    /**
-     * Batch Approve Payments for Cycle (ยืนยันการจ่ายทั้งรอบ)
-     * Updates all unpaid/partial payslips to 'paid' status
-     * @param {string} cycleId 
-     */
     async batchApprovePayments(cycleId) {
-        // 1. Get all payslips for this cycle
         const q = query(
             collection(db, 'payslips'),
             where('cycleId', '==', cycleId)
         );
         const snap = await getDocs(q);
 
-        // 2. Batch update all unpaid/partial payslips
         const batch = writeBatch(db);
         let updatedCount = 0;
 
@@ -760,7 +718,6 @@ export const PayrollRepo = {
             const net = data.financials?.net || 0;
             const currentPaid = (data.payments || []).reduce((sum, p) => sum + p.amount, 0);
             
-            // Only update if not already paid
             if (data.paymentStatus !== 'paid' && currentPaid < net) {
                 const remainingAmount = net - currentPaid;
                 
@@ -788,26 +745,7 @@ export const PayrollRepo = {
         return { updatedCount };
     },
 
-    /**
-     * Batch Lock Cycle
-     */
-    async lockCycle(cycleId) {
-        const batch = writeBatch(db);
-        const cycleRef = doc(db, 'payroll_cycles', cycleId);
-
-        // Lock Cycle
-        batch.update(cycleRef, { status: 'locked' });
-
-        // Ideally should lock all payslips too, but usually UI restriction is enough for non-critical
-        await batch.commit();
-    },
-    /**
-     * Rebuild a Payroll Cycle (Safe Rebuild with Lock Check)
-     * ป้องกันการ rebuild cycle ที่จ่ายเงินไปแล้ว
-     * @param {string} cycleId 
-     */
     async rebuildCycle(cycleId) {
-        // 1. Check if cycle is locked (already paid)
         const cycleRef = doc(db, 'payroll_cycles', cycleId);
         const cycleSnap = await getDoc(cycleRef);
 
@@ -817,16 +755,13 @@ export const PayrollRepo = {
 
         const cycleData = cycleSnap.data();
 
-        // 🚨 CRITICAL: Prevent rebuild if cycle is locked or paid
         if (cycleData.status === 'locked') {
             throw new Error('Cannot rebuild locked cycle - payments have been processed');
         }
 
-        // 2. Get all payslips for this cycle to delete them
         const payslipsQ = query(collection(db, 'payslips'), where('cycleId', '==', cycleId));
         const payslipsSnap = await getDocs(payslipsQ);
 
-        // 3. Delete all existing payslips
         const batch = writeBatch(db);
         payslipsSnap.forEach(doc => {
             batch.delete(doc.ref);
@@ -835,22 +770,15 @@ export const PayrollRepo = {
 
         console.log(`Deleted ${payslipsSnap.size} existing payslips for rebuild`);
 
-        // 4. Recreate cycle with same parameters
-        const [year, month] = cycleData.month.split('-').map(Number);
         const cycleParams = {
             month: cycleData.month,
             period: cycleData.period,
             target: cycleData.target || 'all'
         };
 
-        // 5. Call createCycle with same parameters
         return await this.createCycle(cycleData.companyId, cycleParams);
     },
 
-    /**
-     * Validate Payroll Data Integrity
-     * ตรวจสอบความสมบูรณ์ของข้อมูลใน cycle
-     */
     async validateCycleData(cycleId) {
         const cycleRef = doc(db, 'payroll_cycles', cycleId);
         const cycleSnap = await getDoc(cycleRef);
@@ -866,7 +794,6 @@ export const PayrollRepo = {
             const payslip = payslipDoc.data();
             const logs = payslip.logsSnapshot || [];
 
-            // ตรวจสอบว่ามีข้อมูลทุกวันในช่วงเวลา
             const actualDays = logs.map(l => l.date);
             const missingDays = expectedDays.filter(day => !actualDays.includes(day));
 
@@ -899,9 +826,6 @@ export const PayrollRepo = {
         };
     },
 
-    /**
-     * Helper: Get expected days in date range
-     */
     _getExpectedDays(startDate, endDate) {
         const days = [];
         const start = dayjs(startDate);
@@ -922,7 +846,6 @@ export const PayrollRepo = {
             where('companyId', '==', companyId)
         );
         const snap = await getDocs(q);
-        // Filter client-side to handle missing 'active' field
         return snap.docs.filter(d => {
             const data = d.data();
             return data.role !== 'admin' && data.active !== false && data.status !== 'resigned';

@@ -82,6 +82,8 @@ export const EmployeeDetailSheet = ({
                                 logs={emp.logsSnapshot || []}
                                 startDate={activeCycle?.startDate}
                                 endDate={activeCycle?.endDate}
+                                syncDeduct={emp.cycleData?.syncDeduct || activeCycle?.syncDeduct || false}
+                                deductionConfig={emp.deductionBreakdown?.late || null}
                             />
                         )}
                     </div>

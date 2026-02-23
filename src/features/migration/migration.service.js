@@ -44,30 +44,64 @@ export const migrationService = {
                 const data = d.data();
                 const dateStr = data.date; // Legacy uses date field, not document ID
                 
-                // Legacy attendance collection stores individual clock-in/out records
-                // Each document is either a clock-in or clock-out event
-                if (!dateStr || !data.userId) return;
+                // ดึงข้อมูลจาก legacy record
+                let checkIn = null;
+                let checkOut = null;
                 
-                // Group by employee and date for processing
-                const employeeId = data.userId;
-                const logKey = `${employeeId}_${dateStr}`;
+                // จาก localTimestamp (ถ้ามี)
+                if (data.localTimestamp) {
+                    const parts = data.localTimestamp.split('->');
+                    if (parts.length === 2) {
+                        checkIn = parseTimeSafely(parts[0].trim());
+                        checkOut = parseTimeSafely(parts[1].trim());
+                    }
+                }
+                
+                // จาก retro-approved adjustments
+                if (data.retro_approved && Array.isArray(data.retro_approved)) {
+                    const approved = data.retro_approved.find(r => r.shift_date === dateStr);
+                    if (approved) {
+                        checkIn = parseTimeSafely(approved.check_in);
+                        checkOut = parseTimeSafely(approved.check_out);
+                    }
+                }
+                
+                // คำนวณ late minutes จาก check-in และ schedule start time (09:30)
+                let lateMinutes = 0;
+                if (checkIn) {
+                    // แปลงเวลาเป็นนาที
+                    const checkInMinutes = checkIn.getHours() * 60 + checkIn.getMinutes();
+                    const scheduleStartMinutes = 9 * 60 + 30; // 09:30 = 570 minutes
+                    
+                    lateMinutes = Math.max(0, checkInMinutes - scheduleStartMinutes);
+                    console.log(`🕐 Calculated late minutes for ${dateStr}: checkIn=${checkIn.toTimeString().slice(0,5)}, late=${lateMinutes}m`);
+                }
+                
+                // สร้าง log data ใหม่
+                const logData = {
+                    company_id: companyId,
+                    employee_id: data.employee_id || data.userId, // ใช้ employee_id ถ้ามี ไม่งั้น userId
+                    shift_date: dateStr,
+                    clock_in: checkIn,
+                    clock_out: checkOut,
+                    status: checkIn ? (checkOut ? 'complete' : 'incomplete') : 'absent',
+                    late_minutes: lateMinutes, // ใช้ค่าที่คำนวณแล้ว
+                    clock_in_location: null,
+                    timezone: COMPANY_TIMEZONE,
+                    is_migrated: true,
+                    migrated_at: serverTimestamp(),
+                    source: 'migration_script',
+                    original_legacy_id: data.id || null
+                };
+
+                const logKey = `${companyId}_${data.userId}_${dateStr}`;
                 
                 let existingLog = allLogsToMigrate.find(log => log.logKey === logKey);
                 
                 if (!existingLog) {
                     existingLog = {
                         logKey,
-                        company_id: companyId,
-                        employee_id: employeeId,
-                        shift_date: dateStr,
-                        clock_in: null,
-                        clock_out: null,
-                        status: 'present',
-                        late_minutes: 0,
-                        clock_in_location: null,
-                        timezone: COMPANY_TIMEZONE,
-                        migrated_at: serverTimestamp(),
-                        is_migrated: true
+                        ...logData
                     };
                     allLogsToMigrate.push(existingLog);
                 }

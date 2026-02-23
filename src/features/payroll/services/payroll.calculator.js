@@ -173,17 +173,14 @@ export class PayrollCalculator {
         const mins = Number(lateMinutes) || 0;
         if (mins <= 0) return 0;
 
-        const grace = Number(config?.gracePeriod) || 0;
         const rate = Number(config?.deductionPerMinute) || 0;
         const max = Number(config?.maxDeduction) || 0;
 
-        // 1. Grace Period Condition
-        if (mins <= grace) return 0;
-
-        // 2. Calculation (Full penalty if grace exceeded)
+        // Note: Grace period already applied in calculateLateMinutesWithGracePeriod
+        // Just calculate: minutes * rate
         let amount = new Decimal(mins).times(rate);
 
-        // 3. Max Limit
+        // Max Limit
         if (max > 0 && amount.greaterThan(max)) {
             amount = new Decimal(max);
         }
