@@ -145,7 +145,9 @@ export default function TimeAttendance() {
 
     const changeMonth = (offset) => { setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + offset, 1)); };
     const displayDate = new Date();
-    const isClockIn = !todayRecord || todayRecord.actionType === 'clock-out';
+    // ✅ FIX: เช็คจาก clockOut field แทน actionType (เพราะ Domain Model ไม่มี actionType ส่งมาแล้ว)
+    // ถ้าไม่มี todayRecord หรือมีวันนี้บันทึกไว้แล้วแต่มีเวลาออกงาน (clockOut) = ปุ่มจะเป็น "เข้างาน"
+    const isClockIn = !todayRecord || !!todayRecord.clockOut;
 
     // ===================================================
     // ⏰ Actions & Logics
@@ -170,15 +172,14 @@ export default function TimeAttendance() {
             return;
         }
 
-        const isClockInAction = !todayRecord || todayRecord.actionType === 'clock-out';
-
         // ถ้าตอกเข้า และไม่มีกะ ให้เด้ง Modal เลือกกะก่อน
-        if (isClockInAction && !todaySchedule) {
+        // ✅ FIX: ใช้ isClockIn แทนกการเช็ค actionType ตรงๆ
+        if (isClockIn && !todaySchedule) {
             setShowShiftSelectModal(true);
             return;
         }
 
-        performClockAction(isClockInAction ? 'clock-in' : 'clock-out');
+        performClockAction(isClockIn ? 'clock-in' : 'clock-out');
     };
 
     // Standard Clock Action

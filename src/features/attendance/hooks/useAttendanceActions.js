@@ -3,6 +3,7 @@ import { attendanceService, attendanceRepo } from '../../../di/attendanceDI';
 import { offlineService } from '../offline.service';
 import { addDoc, collection, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../../../shared/lib/firebase';
+import { DateUtils } from '../../../shared/kernel/DateUtils'; // ✅ Import สำหรับจัดการวันที่แบบ Local Time
 
 /**
  * ⚡ useAttendanceActions
@@ -47,7 +48,7 @@ export function useAttendanceActions({
             // If clocking in at 01:00 AM, is it today's shift or yesterday's late shift?
             // 1. Check Schedule: If scheduled for yesterday 22:00, it's yesterday's shift.
             // 2. No Schedule: Use Cut-off Time (e.g. 05:00 AM).
-            const physicalDateStr = now.toISOString().split('T')[0];
+            const physicalDateStr = DateUtils.formatDate(now); // ✅ ใช้ DateUtils คืนค่าเวลา Local Time เสมอ
             const currentHour = now.getHours();
 
             if (options.scheduleData?.startTime) {
@@ -58,7 +59,7 @@ export function useAttendanceActions({
                 if (sh >= 18 && currentHour < 12) {
                     const yesterday = new Date(now);
                     yesterday.setDate(yesterday.getDate() - 1);
-                    shiftDateStr = yesterday.toISOString().split('T')[0];
+                    shiftDateStr = DateUtils.formatDate(yesterday); // ✅ แก้เป็นเวลา Local
 
                     scheduleTime = new Date(yesterday);
                     scheduleTime.setHours(sh, sm, 0, 0);
@@ -73,7 +74,7 @@ export function useAttendanceActions({
                 if (currentHour < CUTOFF_HOUR) {
                     const yesterday = new Date(now);
                     yesterday.setDate(yesterday.getDate() - 1);
-                    shiftDateStr = yesterday.toISOString().split('T')[0];
+                    shiftDateStr = DateUtils.formatDate(yesterday); // ✅ แก้เป็นเวลา Local
                 } else {
                     shiftDateStr = physicalDateStr;
                 }
@@ -163,11 +164,11 @@ export function useAttendanceActions({
             // A more robust way offline is just trying yesterday if today fails, but
             // for now use cutoff to find the active shift.
             const CUTOFF_HOUR = Number(companyConfig?.cutoffHour) || 12; // Out cutoff might be wider, assume 12:00 PM
-            let shiftDateStr = now.toISOString().split('T')[0];
+            let shiftDateStr = DateUtils.formatDate(now); // ✅ ใช้ Local Time
             if (currentHour < CUTOFF_HOUR) {
                 const yesterday = new Date(now);
                 yesterday.setDate(yesterday.getDate() - 1);
-                shiftDateStr = yesterday.toISOString().split('T')[0];
+                shiftDateStr = DateUtils.formatDate(yesterday); // ✅ ใช้ Local Time
             }
 
             const attendanceData = {

@@ -103,20 +103,29 @@ export default function MyWork() {
         const startOfMonthStr = `${year}-${month}-01`;
         const endOfMonthStr = `${year}-${month}-${lastDay}`;
 
+        // ✅ FIX: เปลี่ยนไปดึงจาก attendance_logs (Table ใหม่) แทน attendance (Table เก่า)
         const qAttendance = query(
-            collection(db, "attendance"),
-            where("userId", "==", currentUser.uid),
-            where("createdAt", ">=", new Date(year, currentMonth.getMonth(), 1)),
-            orderBy("createdAt", "desc")
+            collection(db, "attendance_logs"),
+            where("employee_id", "==", currentUser.uid),
+            where("clock_in", ">=", startOfMonthStr),
+            where("clock_in", "<=", endOfMonthStr + "T23:59:59"),
+            orderBy("clock_in", "desc")
         );
 
         const unsubscribeAttendance = onSnapshot(qAttendance, (snapshot) => {
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            const filteredData = data.filter(item => {
-                const d = item.createdAt.toDate();
-                return d.getMonth() === currentMonth.getMonth() && d.getFullYear() === currentMonth.getFullYear();
+            const data = snapshot.docs.map(doc => {
+                const docData = doc.data();
+                // แปลงโครงสร้างให้เหมือน V1 หรือที่ useSalaryCalculator คุ้นเคย
+                return {
+                    id: doc.id,
+                    ...docData,
+                    clockIn: docData.clock_in ? new Date(docData.clock_in) : null,
+                    clockOut: docData.clock_out ? new Date(docData.clock_out) : null,
+                    status: docData.status || 'on-time',
+                    lateMinutes: docData.late_minutes || 0
+                };
             });
-            setAttendanceList(filteredData);
+            setAttendanceList(data);
         });
 
         const qSchedules = query(

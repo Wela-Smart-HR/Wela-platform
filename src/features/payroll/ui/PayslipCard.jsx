@@ -20,8 +20,12 @@ export default function PayslipCard({ payslip }) {
         totalDeductions = 0,
         netSalary = 0,
         workDays = 0,
-        totalDays = 30
+        totalDays = 30,
+        customItems = []
     } = payslip;
+
+    const customIncomes = customItems.filter(item => item.type === 'income');
+    const customDeductions = customItems.filter(item => item.type === 'deduct');
 
     return (
         <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -44,6 +48,12 @@ export default function PayslipCard({ payslip }) {
                         <span>จำนวนวันทำงาน</span>
                         <span>{workDays}/{totalDays} วัน</span>
                     </div>
+                    {customIncomes.map((item, idx) => (
+                        <div key={idx} className="flex justify-between text-sm text-emerald-600 mt-1">
+                            <span>{item.label}</span>
+                            <span>+฿{formatMoney(item.amount)}</span>
+                        </div>
+                    ))}
                 </div>
 
                 <hr />
@@ -69,6 +79,12 @@ export default function PayslipCard({ payslip }) {
                             <span className="text-red-600">-฿{formatMoney(deductions.taxWithholding)}</span>
                         </div>
                     )}
+                    {customDeductions.map((item, idx) => (
+                        <div key={idx} className="flex justify-between text-sm mt-1">
+                            <span>{item.label}</span>
+                            <span className="text-red-600">-฿{formatMoney(item.amount)}</span>
+                        </div>
+                    ))}
                     <div className="flex justify-between font-semibold mt-2 pt-2 border-t">
                         <span>รวมรายการหัก</span>
                         <span className="text-red-600">-฿{formatMoney(totalDeductions)}</span>

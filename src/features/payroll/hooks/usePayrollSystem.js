@@ -124,10 +124,18 @@ export const usePayrollSystem = () => {
         if (!activeEmp) return;
 
         // 1. Update Local Active Emp State
-        const updatedEmp = { ...activeEmp };
+        let updatedEmp = { ...activeEmp };
 
+        // 🚨 ARCHITECTURE FIX: รองรับการ Update แบบ Batch ป้องกันตอ Race Condition 
+        if (field === 'batch_update') {
+            updatedEmp = {
+                ...updatedEmp,
+                financials: { ...(updatedEmp.financials || {}), ...value.financials },
+                customItems: value.customItems
+            };
+        }
         // Helper ในการเข้าถึง nested object (เช่น 'financials.salary')
-        if (field.includes('.')) {
+        else if (field.includes('.')) {
             const [parent, key] = field.split('.');
             updatedEmp[parent] = { ...updatedEmp[parent], [key]: Number(value) };
         }
@@ -141,7 +149,7 @@ export const usePayrollSystem = () => {
         }
 
         // 2. 🧠 Recalculate Net using The Brain
-        // ดึงค่าทั้งหมดมารวมกันเพื่อคำนวณใหม่
+        // ดึงค่าทั้งหมดมารวมกันเพื่อคำนวณใหม่ โดยอ่านจาก customItems ตาม Schema ของ DB อย่างถูกต้อง
         const calcItems = {
             salary: updatedEmp.financials.salary,
             ot: updatedEmp.financials.ot,
@@ -149,8 +157,8 @@ export const usePayrollSystem = () => {
             deductions: updatedEmp.financials.deductions, // late/absent
             sso: updatedEmp.financials.sso,
             tax: updatedEmp.financials.tax,
-            customIncomes: updatedEmp.customIncomes || [],
-            customDeducts: updatedEmp.customDeducts || []
+            customIncomes: (updatedEmp.customItems || []).filter(i => i.type === 'income'),
+            customDeducts: (updatedEmp.customItems || []).filter(i => i.type === 'deduct')
         };
 
         const newNet = PayrollCalculator.calculateNet(calcItems);
@@ -235,7 +243,7 @@ export const usePayrollSystem = () => {
     const handleBatchPayment = async (cycleId) => {
         try {
             await PayrollRepo.batchApprovePayments(cycleId);
-            
+
             // Refresh data
             if (activeCycle && activeCycle.id === cycleId) {
                 const freshPayslips = await PayrollRepo.getPayslips(cycleId);
@@ -331,13 +339,13 @@ export const usePayrollSystem = () => {
 
         try {
             setIsLoading(true);
-            
+
             // Call the safe rebuild function
             await PayrollRepo.rebuildCycle(activeCycle.id);
-            
+
             // Refresh the cycle data
             await handleSelectCycle(activeCycle);
-            
+
             Swal.fire({
                 icon: 'success',
                 title: 'Cycle Rebuilt Successfully!',
@@ -371,7 +379,7 @@ export const usePayrollSystem = () => {
         try {
             setIsLoading(true);
             const validation = await PayrollRepo.validateCycleData(activeCycle.id);
-            
+
             if (validation.isValid) {
                 Swal.fire({
                     icon: 'success',
@@ -383,10 +391,10 @@ export const usePayrollSystem = () => {
                     confirmButtonColor: '#16a34a'
                 });
             } else {
-                const issueSummary = validation.issues.slice(0, 3).map(issue => 
+                const issueSummary = validation.issues.slice(0, 3).map(issue =>
                     `<li>${issue.employee}: ${issue.missingDays.length} missing days (${issue.completionRate})</li>`
                 ).join('');
-                
+
                 Swal.fire({
                     icon: 'warning',
                     title: 'Data Validation Issues Found',

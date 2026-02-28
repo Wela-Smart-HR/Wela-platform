@@ -25,23 +25,23 @@ const COMPANY_TIMEZONE = 'Asia/Bangkok';
  */
 function calculateLateMinutesWithGracePeriod(checkIn, scheduleStart, gracePeriod = 0, shiftConfig = null) {
     if (!checkIn) return 0;
-    
+
     // Use shift-specific rules if available, otherwise use provided parameters
     const effectiveGracePeriod = shiftConfig?.gracePeriod ?? gracePeriod;
     const effectiveScheduleStart = shiftConfig?.startTime ?? scheduleStart;
-    
+
     // Convert times to minutes since midnight
     const toMinutes = (timeStr) => {
         const [hours, minutes] = timeStr.split(':').map(Number);
         return hours * 60 + minutes;
     };
-    
+
     const checkInMinutes = toMinutes(checkIn);
     const scheduleMinutes = toMinutes(effectiveScheduleStart);
-    
+
     // Calculate late minutes
     const lateMinutes = Math.max(0, checkInMinutes - scheduleMinutes);
-    
+
     // Apply grace period
     return Math.max(0, lateMinutes - effectiveGracePeriod);
 }
@@ -59,11 +59,11 @@ function getShiftConfig(shiftConfigs, employee, schedule, defaultShift) {
     if (schedule?.shiftType && shiftConfigs[schedule.shiftType]) {
         return { ...defaultShift, ...shiftConfigs[schedule.shiftType] };
     }
-    
+
     if (employee?.defaultShift && shiftConfigs[employee.defaultShift]) {
         return { ...defaultShift, ...shiftConfigs[employee.defaultShift] };
     }
-    
+
     return defaultShift;
 }
 
@@ -95,7 +95,7 @@ function calculateActualOTHours(checkIn, checkOut, shiftEnd, scheduledOTHours) {
     if (checkOutMinutes < checkInMinutes) {
         checkOutMinutes += 1440;
     }
-    
+
     // 2. ถ้าเวลาจบกะน้อยกว่าเวลาเข้างาน แปลว่ากะงานคร่อมวัน ให้บวก 24 ชม. (1440 นาที)
     if (shiftEndMinutes < checkInMinutes) {
         shiftEndMinutes += 1440;
@@ -217,7 +217,7 @@ export const PayrollRepo = {
             if (log.clock_in.toDate) {
                 clockInDayjs = dayjs(log.clock_in.toDate());
             } else {
-                clockInDayjs = dayjs(log.clock_in);
+                clockInDayjs = dayjs.tz(log.clock_in, COMPANY_TIMEZONE);
             }
             if (!clockInDayjs.isValid()) return false;
             return clockInDayjs.isBetween(rangeStart, rangeEnd, 'millisecond', '[]');
@@ -383,24 +383,24 @@ export const PayrollRepo = {
                 }
 
                 if (log.scheduleOT && log.scheduleOT.hasOT && log.scheduleOT.otHours > 0) {
-                    const shiftEnd = log.scheduleEndTime || "18:00"; 
-                    
+                    const shiftEnd = log.scheduleEndTime || "18:00";
+
                     const actualOTHours = calculateActualOTHours(
                         log.checkIn,
                         log.checkOut,
                         shiftEnd,
                         log.scheduleOT.otHours
                     );
-                    
+
                     if (actualOTHours > 0) {
                         const otType = companyConfig.otTypes?.find(ot => ot.id === log.scheduleOT.otType);
                         const multiplier = otType?.rate || 1.5;
                         const otAmt = actualOTHours * hourlyRate * multiplier;
                         logIncome += otAmt;
                         logNotes.push(`OT ${actualOTHours.toFixed(1)}h (x${multiplier}, กำหนด ${log.scheduleOT.otHours}h)`);
-                        
+
                         totalOtHours += actualOTHours;
-                        totalOtPay += otAmt; 
+                        totalOtPay += otAmt;
                     } else {
                         logNotes.push(`OT 0h (ออกงานไม่เกินเวลา, กำหนด ${log.scheduleOT.otHours}h)`);
                     }
@@ -420,39 +420,39 @@ export const PayrollRepo = {
                     console.log(' Deduction Debug - Employee:', emp.name, 'Date:', log.date);
                     console.log('  syncDeduct:', cycleData.syncDeduct);
                     console.log('  checkIn:', log.checkIn);
-                    
+
                     const shiftConfig = getShiftConfig(shiftConfigs, emp, log, defaultShift);
                     console.log('  shiftConfig:', shiftConfig);
-                    
+
                     // 
                     const effectiveStartTime = log.scheduleStartTime || shiftConfig.startTime || '09:30';
                     const effectiveGracePeriod = Number(shiftConfig.gracePeriod) || 0;
-                    
+
                     console.log('  effectiveStartTime:', effectiveStartTime);
                     console.log('  effectiveGracePeriod:', effectiveGracePeriod);
-                    
+
                     const actualLateMinutes = calculateLateMinutesWithGracePeriod(
-                        log.checkIn, 
-                        effectiveStartTime, 
+                        log.checkIn,
+                        effectiveStartTime,
                         effectiveGracePeriod,
                         shiftConfig
                     );
-                    
+
                     console.log('  actualLateMinutes:', actualLateMinutes);
-                    
+
                     if (actualLateMinutes > 0) {
                         const shiftDeductionConfig = {
                             gracePeriod: effectiveGracePeriod,
                             deductionPerMinute: Number(shiftConfig.deductionPerMinute) || 0,
                             maxDeduction: Number(shiftConfig.maxDeduction) || 0
                         };
-                        
+
                         console.log('  shiftDeductionConfig:', shiftDeductionConfig);
-                        
+
                         const fine = PayrollCalculator.calculateLateDeduction(actualLateMinutes, shiftDeductionConfig);
-                        
+
                         console.log('  calculated fine:', fine);
-                        
+
                         logDeduction += fine;
                         logNotes.push(` ${actualLateMinutes} (${effectiveStartTime}+${effectiveGracePeriod}m)`);
                         totalDeductionAmount += fine;
@@ -460,7 +460,7 @@ export const PayrollRepo = {
                         // 
                         dailyDeductionMinutes = actualLateMinutes;
                         dailyDeductionAmount = fine;
-                        
+
                         console.log('  Deduction applied:', fine);
                     } else {
                         console.log('  No deduction - actualLateMinutes = 0');
@@ -482,7 +482,7 @@ export const PayrollRepo = {
                             scheduled: log.scheduleOT.otHours,
                             actual: calculateActualOTHours(log.checkIn, log.checkOut, log.scheduleEndTime, log.scheduleOT.otHours),
                             rate: companyConfig.otTypes?.find(ot => ot.id === log.scheduleOT.otType)?.rate || 1.5,
-                            amount: (log.scheduleOT && log.scheduleOT.hasOT && log.scheduleOT.otHours > 0) ? 
+                            amount: (log.scheduleOT && log.scheduleOT.hasOT && log.scheduleOT.otHours > 0) ?
                                 calculateActualOTHours(log.checkIn, log.checkOut, log.scheduleEndTime, log.scheduleOT.otHours) * hourlyRate * (companyConfig.otTypes?.find(ot => ot.id === log.scheduleOT.otType)?.rate || 1.5) : 0
                         } : null,
                         incentive: (log.scheduleIncentive && log.scheduleIncentive > 0) ? log.scheduleIncentive : 0
@@ -562,7 +562,7 @@ export const PayrollRepo = {
                 payments: [],
                 paymentStatus: 'pending',
                 paidAmount: 0,
-                logsSnapshot: enrichedLogs, 
+                logsSnapshot: enrichedLogs,
                 updatedAt: serverTimestamp()
             });
         });
@@ -651,11 +651,11 @@ export const PayrollRepo = {
         );
         const snap = await getDocs(q);
         const payslips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        
+
         const cycleRef = doc(db, 'payroll_cycles', cycleId);
         const cycleSnap = await getDoc(cycleRef);
         const cycleData = cycleSnap.exists() ? cycleSnap.data() : { syncDeduct: false };
-        
+
         return payslips.map(payslip => ({
             ...payslip,
             cycleData: cycleData
@@ -717,10 +717,10 @@ export const PayrollRepo = {
             const data = doc.data();
             const net = data.financials?.net || 0;
             const currentPaid = (data.payments || []).reduce((sum, p) => sum + p.amount, 0);
-            
+
             if (data.paymentStatus !== 'paid' && currentPaid < net) {
                 const remainingAmount = net - currentPaid;
-                
+
                 batch.update(doc.ref, {
                     payments: [
                         ...(data.payments || []),

@@ -48,17 +48,22 @@ export const usePayrollForm = (emp, onUpdate) => {
     // Propagate Update to Parent
     const propagateUpdate = (updatedForm, updatedConfig) => {
         if (onUpdate) {
-            onUpdate('financials', {
-                salary: Number(updatedForm.salary),
-                ot: Number(updatedForm.ot),
-                incentive: Number(updatedForm.incentive),
-                deductions: Number(updatedForm.deductions),
-                sso: Number(updatedForm.sso),
-                tax: Number(updatedForm.tax),
-                _config: updatedConfig
+            // 🚨 ARCHITECTURE FIX: ส่งข้อมูลเป็น Batch เดียว เพื่อแก้ปัญหา React Update Race Condition (Stale state)
+            onUpdate('batch_update', {
+                financials: {
+                    salary: Number(updatedForm.salary),
+                    ot: Number(updatedForm.ot),
+                    incentive: Number(updatedForm.incentive),
+                    deductions: Number(updatedForm.deductions),
+                    sso: Number(updatedForm.sso),
+                    tax: Number(updatedForm.tax),
+                    _config: updatedConfig
+                },
+                customItems: [
+                    ...(updatedForm.customIncomes || []).map(i => ({ ...i, type: 'income' })),
+                    ...(updatedForm.customDeducts || []).map(i => ({ ...i, type: 'deduct' }))
+                ]
             });
-            onUpdate('customIncomes', updatedForm.customIncomes);
-            onUpdate('customDeducts', updatedForm.customDeducts);
         }
     };
 
