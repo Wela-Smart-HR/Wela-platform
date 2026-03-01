@@ -182,6 +182,12 @@ export const usePayrollSystem = () => {
             } else {
                 await PayrollRepo.savePayslip(activeEmp);
             }
+
+            // 🔄 Sync summary
+            if (activeCycle) {
+                await PayrollRepo.syncCycleSummary(activeCycle.id);
+            }
+
             Swal.fire({
                 icon: 'success',
                 title: 'บันทึกเรียบร้อย!',
@@ -259,12 +265,17 @@ export const usePayrollSystem = () => {
         if (!activeEmp) return;
         try {
             // เรียก Repo Transaction
-            await PayrollRepo.addPayment(activeEmp.id, {
+            const affectedCycleId = await PayrollRepo.addPayment(activeEmp.id, {
                 amount: Number(amount),
                 date: new Date().toISOString(),
                 method: 'transfer', // Default
                 note: 'Manual Payment'
             });
+
+            // 🔄 Sync summary
+            if (affectedCycleId) {
+                await PayrollRepo.syncCycleSummary(affectedCycleId);
+            }
 
             // Refresh ข้อมูลพนักงานคนนั้นใหม่ (เพื่อให้ได้สถานะล่าสุดจาก DB)
             // หรือจะคำนวณ Local State ก็ได้ แต่การ Fetch ใหม่ชัวร์กว่าเรื่อง Status
@@ -301,6 +312,11 @@ export const usePayrollSystem = () => {
 
             // Save to DB
             await PayrollRepo.savePayslip(updatedEmp);
+
+            // 🔄 Sync summary
+            if (activeCycle) {
+                await PayrollRepo.syncCycleSummary(activeCycle.id);
+            }
 
             // Update UI
             setActiveEmp(updatedEmp);
@@ -449,7 +465,9 @@ export const usePayrollSystem = () => {
     }, [employees, cycles, staffCount]);
 
     // ✅ 1. เพิ่มฟังก์ชัน goBack ที่หายไป เพื่อแก้ไข Error ขาว
-    const goBack = () => {
+    const goBack = async () => {
+        // Refresh cycles data incase of modification
+        await loadCycles();
         setView('cycles');
         setActiveCycle(null);
         setEmployees([]);

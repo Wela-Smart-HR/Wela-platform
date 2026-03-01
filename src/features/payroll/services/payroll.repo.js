@@ -677,11 +677,14 @@ export const PayrollRepo = {
     async addPayment(payslipId, payment) {
         const psRef = doc(db, 'payslips', payslipId);
 
+        let returnedCycleId = null;
+
         await runTransaction(db, async (transaction) => {
             const sfDoc = await transaction.get(psRef);
             if (!sfDoc.exists()) throw "Payslip does not exist!";
 
             const data = sfDoc.data();
+            returnedCycleId = data.cycleId;
             const currentPaid = (data.payments || []).reduce((acc, p) => acc + p.amount, 0);
             const netTotal = data.financials?.net || 0;
 
@@ -701,6 +704,8 @@ export const PayrollRepo = {
                 updatedAt: serverTimestamp()
             });
         });
+
+        return returnedCycleId;
     },
 
     async batchApprovePayments(cycleId) {
@@ -742,7 +747,56 @@ export const PayrollRepo = {
 
         await batch.commit();
         console.log(`Batch approved ${updatedCount} payments for cycle ${cycleId}`);
+
+        // 🔄 Sync total summary after batch
+        if (updatedCount > 0) {
+            await this.syncCycleSummary(cycleId);
+        }
+
         return { updatedCount };
+    },
+
+    /**
+     * Recalculates and updates the total summary for a specific payroll cycle
+     * based on the actual payslip data stored in the database.
+     * Prevents mismatch between cycle-level summary and detailed payslips.
+     */
+    async syncCycleSummary(cycleId) {
+        if (!cycleId) return;
+
+        try {
+            // 1. Fetch all payslips for this cycle
+            const q = query(collection(db, 'payslips'), where('cycleId', '==', cycleId));
+            const snap = await getDocs(q);
+
+            let totalNet = 0;
+            let totalPaid = 0;
+            let count = 0;
+
+            snap.docs.forEach(doc => {
+                const data = doc.data();
+                totalNet += (data.financials?.net || 0);
+                totalPaid += (data.paidAmount || 0);
+                count++;
+            });
+
+            // 2. Update cycle summary
+            const cycleRef = doc(db, 'payroll_cycles', cycleId);
+            await updateDoc(cycleRef, {
+                summary: {
+                    totalNet,
+                    totalPaid,
+                    count
+                },
+                updatedAt: serverTimestamp()
+            });
+
+            console.log(`Synced summary for cycle ${cycleId}: net=${totalNet}, paid=${totalPaid}, count=${count}`);
+            return { totalNet, totalPaid, count };
+        } catch (error) {
+            console.error(`Failed to sync summary for cycle ${cycleId}:`, error);
+            throw error;
+        }
     },
 
     async rebuildCycle(cycleId) {
